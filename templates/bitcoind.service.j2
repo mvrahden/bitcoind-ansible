@@ -6,7 +6,7 @@ After=network.target
 
 [Service]
 Type=forking
-ExecStart=/usr/local/bitcoin-core-{{ bitcoin_version }}/bin/bitcoind -conf=/etc/bitcoin/{{ bitcoin_network }}/bitcoin.conf
+ExecStart=/usr/local/bin/bitcoind -conf=/etc/bitcoin/{{ bitcoin_network }}/bitcoin.conf
 
 # It is recommended to use this field if service Type is set to forking,
 # so that systemd can reliably identify the main process of the service.
