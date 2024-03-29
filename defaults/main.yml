@@ -25,11 +25,19 @@ bitcoin_bind: 127.0.0.1
 # recommended, and you should use your own ones. You are going
 # to use these values always to be able to read/write data
 # from your node, so be sure to maintain it secret.
-bitcoin_rpc_user: bitcoin
-bitcoin_rpc_password: bitcoin
+bitcoin_rpc_auth: bitcoin:2e00f3e1e6b96957fe9ea0ab3916eb16$c8f9f556c48dd43ebbe948ab969d4eafd01601e4881a470a52777d84763b8e95
+# clear-text alternatives:
+# bitcoin_rpc_user: bitcoin
+# bitcoin_rpc_password: bitcoin
 bitcoin_rpc_bind: 127.0.0.1
-bitcoin_rpc_allow_ip: 127.0.0.1
+bitcoin_rpc_port: 8332
+bitcoin_rpc_allow_ip: null
+bitcoin_rpc_allow_ips:
+  - 127.0.0.1
 
 # This is the host where you want to expose the ZMQ TCP socket
 # to receive raw block and transaction updates.
 bitcoin_zmq_host: 127.0.0.1
+
+bitcoin_use_onion: False
+bitcoin_onion_proxy: 127.0.0.1:9050

@@ -14,7 +14,7 @@ to `/home/<user>/.bitcoin`. Using absolute routes is only useful when doing upda
 required
 or to using a specific binary version to execute an operation.
 
-### Requirements
+## Requirements
 
 This role requires a user with `sudo` permissions to work properly.
 
@@ -25,7 +25,7 @@ List of officially supported operating systems:
 | `ubuntu2004` | Ubuntu 20.04 | :white_check_mark: |
 | `ubuntu2204` | Ubuntu 22.04 | :white_check_mark: |
 
-### How to run this?
+## How to run this?
 
 Create a playbook like this one:
 
@@ -54,38 +54,45 @@ You can execute tests using `molecule`. Install the [`requirements.txt`](molecul
 to execute tests through Docker or with a VM managed by Vagrant.
 
 ```bash
-$ molecule test
+molecule test
 ```
 
 If you want to run a test through a specific operating system you can update the `MOLECULE_DISTRO` variable using
 the operating system ID mentioned in the requirements table.
 
-## Variables
+### Variables
 
 You can change some variables to install this role to fit your needs. The default values to install the
 Bitcoin node are the following ones:
 
-| Name              	 | Value              	 |
+| Name                | Value                |
 |---------------------|----------------------|
-| `bitcoin_user`    	 | `bitcoin`          	 |
-| `bitcoin_group`   	 | `bitcoin`          	 |
-| `bitcoin_version` 	 | `26.0`             	 |
-| `bitcoin_arch`    	 | `x86_64-linux-gnu` 	 |
+| `bitcoin_user`      | `bitcoin`            |
+| `bitcoin_group`     | `bitcoin`            |
+| `bitcoin_version`   | `26.0`               |
+| `bitcoin_arch`      | `x86_64-linux-gnu`   |
 
 > If you want to install Bitcoin into a Raspberry you need to change the architecture to `aarch64-linux-gnu`.
 
 To configure the Bitcoin node, you can use the following variables:
 
-| Name                   	     | Value           	 | Note                                             	 |
-|------------------------------|-------------------|----------------------------------------------------|
-| `bitcoin_data_dir`     	     | `/data/bitcoin` 	 | 	                                                  |
-| `bitcoin_network`      	     | `main`          	 | Valid values are: `regtest`, `signet` and `test` 	 |
-| `bitcoin_rpc_user`     	     | `bitcoin`       	 | 	                                                  |
-| `bitcoin_rpc_password` 	     | `bitcoin`       	 | 	                                                  |
-| `bitcoin_zmq_host`     	     | `127.0.0.1`     	 | 	                                                  |
-| `bitcoin_bind`     	         | `127.0.0.1`     	 | 	                                                  |
-| `bitcoin_rpc_bind`     	     | `127.0.0.1`     	 | This is where to expose the RPC server	            |
-| `bitcoin_rpc_allow_ip`     	 | `127.0.0.1`     	 | This can be an IP or a range like `10.0.0.0/24`	   |
+> Use [rpcauth.yp](https://raw.githubusercontent.com/bitcoin/bitcoin/master/share/rpcauth/rpcauth.py) to
+> generate `rpcauth` credentials.
+
+| Name                    | Value             | Note                                                 |
+| ----------------------- | ----------------- | ---------------------------------------------------- |
+| `bitcoin_data_dir`      | `/data/bitcoin`   |                                                      |
+| `bitcoin_network`       | `main`            | Valid values are: `regtest`, `signet` and `test`     |
+| `bitcoin_rpc_auth`      | `bitcoin:2e00...` | Prevent your password from being stored as cleartext |
+| `bitcoin_rpc_user`      | `bitcoin`         | If possible use `btc_rpc_auth` instead               |
+| `bitcoin_rpc_password`  | `bitcoin`         | If possible use `btc_rpc_auth` instead               |
+| `bitcoin_zmq_host`      | `127.0.0.1`       |                                                      |
+| `bitcoin_bind`          | `127.0.0.1`       |                                                      |
+| `bitcoin_rpc_bind`      | `127.0.0.1`       | This is where to expose the RPC server               |
+| `bitcoin_rpc_allow_ip`  | `None`            | This can be an IP or a range like `10.0.0.0/24`      |
+| `bitcoin_rpc_allow_ips` | `[127.0.0.1]`     | This can be an IP or a range like `10.0.0.0/24`      |
+| `bitcoin_use_onion`     | `False`           | This enables onion support                           |
+| `bitcoin_onion_proxy`   | `127.0.0.1:9050`  |                                                      |
 
 ### GPG verification
 
@@ -93,10 +100,10 @@ By default, this installer uses `gpg` to verify the integrity and signature of t
 behaviour is controlled by the `bitcoin_pgp_builders_pub_key` field. The content of this structure and default values
 are the following:
 
-| Name       	 | ID                                         	 |
+| Name         | ID                                           |
 |--------------|----------------------------------------------|
-| `laanwj` 	   | `71A3B16735405025D447E8F274810B012346C9A6` 	 |
-| `fanquake` 	 | `E777299FC265DD04793070EB944D35F9AC3DB76A` 	 |
+| `laanwj`     | `71A3B16735405025D447E8F274810B012346C9A6`   |
+| `fanquake`   | `E777299FC265DD04793070EB944D35F9AC3DB76A`   |
 
 If you only want to verify with one user, you should use something like this:
 
