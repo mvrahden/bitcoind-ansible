@@ -76,16 +76,23 @@ Bitcoin node are the following ones:
 
 To configure the Bitcoin node, you can use the following variables:
 
-| Name                         | Value             | Note                                               |
-|------------------------------|-------------------|----------------------------------------------------|
-| `bitcoin_data_dir`           | `/data/bitcoin`   |                                                    |
-| `bitcoin_network`            | `main`            | Valid values are: `regtest`, `signet` and `test`   |
-| `bitcoin_rpc_user`           | `bitcoin`         |                                                    |
-| `bitcoin_rpc_password`       | `bitcoin`         |                                                    |
-| `bitcoin_zmq_host`           | `127.0.0.1`       |                                                    |
-| `bitcoin_bind`               | `127.0.0.1`       |                                                    |
-| `bitcoin_rpc_bind`           | `127.0.0.1`       | This is where to expose the RPC server             |
-| `bitcoin_rpc_allow_ip`       | `127.0.0.1`       | This can be an IP or a range like `10.0.0.0/24`    |
+> Use [rpcauth.yp](https://raw.githubusercontent.com/bitcoin/bitcoin/master/share/rpcauth/rpcauth.py) to
+> generate `rpcauth` credentials.
+
+| Name                    | Value             | Note                                                 |
+| ----------------------- | ----------------- | ---------------------------------------------------- |
+| `bitcoin_data_dir`      | `/data/bitcoin`   |                                                      |
+| `bitcoin_network`       | `main`            | Valid values are: `regtest`, `signet` and `test`     |
+| `bitcoin_rpc_auth`      | `bitcoin:2e00...` | Prevent your password from being stored as cleartext |
+| `bitcoin_rpc_user`      | `bitcoin`         | If possible use `btc_rpc_auth` instead               |
+| `bitcoin_rpc_password`  | `bitcoin`         | If possible use `btc_rpc_auth` instead               |
+| `bitcoin_zmq_host`      | `127.0.0.1`       |                                                      |
+| `bitcoin_bind`          | `127.0.0.1`       |                                                      |
+| `bitcoin_rpc_bind`      | `127.0.0.1`       | This is where to expose the RPC server               |
+| `bitcoin_rpc_allow_ip`  | `None`            | This can be an IP or a range like `10.0.0.0/24`      |
+| `bitcoin_rpc_allow_ips` | `[127.0.0.1]`     | This can be an IP or a range like `10.0.0.0/24`      |
+| `bitcoin_use_onion`     | `False`           | This enables onion support                           |
+| `bitcoin_onion_proxy`   | `127.0.0.1:9050`  |                                                      |
 
 ### GPG verification
 
