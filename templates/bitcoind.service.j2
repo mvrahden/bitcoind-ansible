@@ -1,35 +1,81 @@
+# It is not recommended to modify this file in-place, because it will
+# be overwritten during package upgrades. If you want to add further
+# options or overwrite existing ones then use
+# $ systemctl edit bitcoind.service
+# See "man systemd.service" for details.
+
+# Note that almost all daemon options could be specified in
+# /etc/bitcoin/bitcoin.conf, but keep in mind those explicitly
+# specified as arguments in ExecStart= will override those in the
+# config file.
 
 [Unit]
 Description=Bitcoin Core daemon for network {{ bitcoind_network | capitalize }}
-Documentation=https://github.com/fooock/bitcoind-ansible
-After=network.target
+Documentation=https://github.com/bitcoin/bitcoin/blob/master/doc/init.md
+
+# https://www.freedesktop.org/wiki/Software/systemd/NetworkTarget/
+After=network-online.target
+Wants=network-online.target
 
 [Service]
+ExecStart=/usr/local/bin/bitcoind -daemonwait \
+                            -conf=/etc/bitcoin/{{ bitcoind_network }}/bitcoin.conf \
+
+# Make sure the config directory is readable by the service user
+PermissionsStartOnly=true
+# ExecStartPre=/bin/chgrp bitcoin /etc/bitcoin
+
+# Process management
+####################
+
 Type=forking
-ExecStart=/usr/local/bin/bitcoind -conf=/etc/bitcoin/{{ bitcoind_network }}/bitcoin.conf
-
-# It is recommended to use this field if service Type is set to forking,
-# so that systemd can reliably identify the main process of the service.
 PIDFile=/run/bitcoind/{{ bitcoind_network }}/bitcoind.pid
-
-# Bitcoin runtime /run/bitcoind/{{ bitcoind_network }}
-RuntimeDirectory=bitcoind/{{ bitcoind_network }}
-RuntimeDirectoryMode=0710
-
-# Bitcoin configuration /etc/bitcoin/{{ bitcoind_network }}
-ConfigurationDirectory=bitcoin/{{ bitcoind_network }}
-ConfigurationDirectoryMode=0750
 
 Restart=on-failure
 RestartSec=30
+TimeoutStartSec=infinity
+TimeoutStopSec=600
 
+# Directory creation and permissions
+####################################
+
+# Run as {{ bitcoind_user }}:{{ bitcoind_group }}
 User={{ bitcoind_user }}
 Group={{ bitcoind_group }}
 
+# /run/bitcoind/{{ bitcoind_network }}
+RuntimeDirectory=bitcoind/{{ bitcoind_network }}
+RuntimeDirectoryMode=0710
+
+# /etc/bitcoin/{{ bitcoind_network }}
+ConfigurationDirectory=bitcoin/{{ bitcoind_network }}
+ConfigurationDirectoryMode=0710
+
+# /var/lib/bitcoind
+StateDirectory=bitcoind
+StateDirectoryMode=0710
+
+# Hardening measures
+####################
+
+# Provide a private /tmp and /var/tmp.
 PrivateTmp=true
+
+# Mount /usr, /boot/ and /etc read-only for the process.
 ProtectSystem=full
+
+# Deny access to /home, /root and /run/user
+# ProtectHome=true
+
+# Disallow the process and all of its children to gain
+# new privileges through execve().
 NoNewPrivileges=true
+
+# Use a new /dev namespace only populated with API pseudo devices
+# such as /dev/null, /dev/zero and /dev/random.
 PrivateDevices=true
+
+# Deny the creation of writable and executable memory mappings.
 MemoryDenyWriteExecute=true
 
 [Install]
