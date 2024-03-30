@@ -43,7 +43,7 @@ If you want to install the Bitcoin node into a Raspberry Pi, just change the arc
 - hosts: bitcoind
   become: yes
   vars:
-    bitcoin_arch: aarch64-linux-gnu
+    bitcoind_arch: aarch64-linux-gnu
   roles:
     - role: fooock.bitcoind
 ```
@@ -67,10 +67,10 @@ Bitcoin node are the following ones:
 
 | Name                | Value                |
 |---------------------|----------------------|
-| `bitcoin_user`      | `bitcoin`            |
-| `bitcoin_group`     | `bitcoin`            |
-| `bitcoin_version`   | `26.0`               |
-| `bitcoin_arch`      | `x86_64-linux-gnu`   |
+| `bitcoind_user`      | `bitcoin`            |
+| `bitcoind_group`     | `bitcoin`            |
+| `bitcoind_version`   | `26.0`               |
+| `bitcoind_arch`      | `x86_64-linux-gnu`   |
 
 > If you want to install Bitcoin into a Raspberry you need to change the architecture to `aarch64-linux-gnu`.
 
@@ -81,23 +81,23 @@ To configure the Bitcoin node, you can use the following variables:
 
 | Name                    | Value             | Note                                                 |
 | ----------------------- | ----------------- | ---------------------------------------------------- |
-| `bitcoin_data_dir`      | `/data/bitcoin`   |                                                      |
-| `bitcoin_network`       | `main`            | Valid values are: `regtest`, `signet` and `test`     |
-| `bitcoin_rpc_auth`      | `bitcoin:2e00...` | Prevent your password from being stored as cleartext |
-| `bitcoin_rpc_user`      | `bitcoin`         | If possible use `btc_rpc_auth` instead               |
-| `bitcoin_rpc_password`  | `bitcoin`         | If possible use `btc_rpc_auth` instead               |
-| `bitcoin_zmq_host`      | `127.0.0.1`       |                                                      |
-| `bitcoin_bind`          | `127.0.0.1`       |                                                      |
-| `bitcoin_rpc_bind`      | `127.0.0.1`       | This is where to expose the RPC server               |
-| `bitcoin_rpc_allow_ip`  | `None`            | This can be an IP or a range like `10.0.0.0/24`      |
-| `bitcoin_rpc_allow_ips` | `[127.0.0.1]`     | This can be an IP or a range like `10.0.0.0/24`      |
-| `bitcoin_use_onion`     | `False`           | This enables onion support                           |
-| `bitcoin_onion_proxy`   | `127.0.0.1:9050`  |                                                      |
+| `bitcoind_data_dir`      | `/data/bitcoin`   |                                                      |
+| `bitcoind_network`       | `main`            | Valid values are: `regtest`, `signet` and `test`     |
+| `bitcoind_rpc_auth`      | `bitcoin:2e00...` | Prevent your password from being stored as cleartext |
+| `bitcoind_rpc_user`      | `bitcoin`         | If possible use `btc_rpc_auth` instead               |
+| `bitcoind_rpc_password`  | `bitcoin`         | If possible use `btc_rpc_auth` instead               |
+| `bitcoind_zmq_host`      | `127.0.0.1`       |                                                      |
+| `bitcoind_bind`          | `127.0.0.1`       |                                                      |
+| `bitcoind_rpc_bind`      | `127.0.0.1`       | This is where to expose the RPC server               |
+| `bitcoind_rpc_allow_ip`  | `None`            | This can be an IP or a range like `10.0.0.0/24`      |
+| `bitcoind_rpc_allow_ips` | `[127.0.0.1]`     | This can be an IP or a range like `10.0.0.0/24`      |
+| `bitcoind_use_onion`     | `False`           | This enables onion support                           |
+| `bitcoind_onion_proxy`   | `127.0.0.1:9050`  |                                                      |
 
 ### GPG verification
 
 By default, this installer uses `gpg` to verify the integrity and signature of the downloaded artifacts. This
-behaviour is controlled by the `bitcoin_pgp_builders_pub_key` field. The content of this structure and default values
+behaviour is controlled by the `bitcoind_pgp_builders_pub_key` field. The content of this structure and default values
 are the following:
 
 | Name         | ID                                           |
@@ -108,7 +108,7 @@ are the following:
 If you only want to verify with one user, you should use something like this:
 
 ```yaml
-bitcoin_pgp_builders_pub_key:
+bitcoind_pgp_builders_pub_key:
   - id: 71A3B16735405025D447E8F274810B012346C9A6
     name: laanwj
 ```

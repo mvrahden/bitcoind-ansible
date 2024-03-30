@@ -4,18 +4,18 @@
   become: true
   gather_facts: false
   vars:
-    bitcoin_version: 26.0
+    bitcoind_version: 26.0
 
   tasks:
-    - name: "Retrieve information from /usr/local/bitcoin-core-{{ bitcoin_version }}"
+    - name: "Retrieve information from /usr/local/bitcoin-core-{{ bitcoind_version }}"
       stat:
-        path: "/usr/local/bitcoin-core-{{ bitcoin_version }}"
-      register: bitcoin_directory
+        path: "/usr/local/bitcoin-core-{{ bitcoind_version }}"
+      register: bitcoind_directory
 
-    - name: "Test that Bitcoin Core v{{ bitcoin_version }} directory was created correctly"
+    - name: "Test that Bitcoin Core v{{ bitcoind_version }} directory was created correctly"
       assert:
         that:
-          - bitcoin_directory.stat.exists
-          - bitcoin_directory.stat.isdir
-          - bitcoin_directory.stat.pw_name == 'bitcoin'
-          - bitcoin_directory.stat.gr_name == 'bitcoin'
+          - bitcoind_directory.stat.exists
+          - bitcoind_directory.stat.isdir
+          - bitcoind_directory.stat.pw_name == 'bitcoin'
+          - bitcoind_directory.stat.gr_name == 'bitcoin'

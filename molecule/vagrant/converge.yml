@@ -6,6 +6,6 @@
   become: true
 
   vars:
-    bitcoin_network: signet
+    bitcoind_network: signet
   roles:
     - fooock.bitcoind

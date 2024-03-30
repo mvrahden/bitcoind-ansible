@@ -9,28 +9,28 @@
     - dirmngr
   # We only need to install these dependencies if we
   # have the GPG keys to verify the SHA256SUMS file
-  when: bitcoin_pgp_builders_pub_key is defined and bitcoin_pgp_builders_pub_key | length > 0
+  when: bitcoind_pgp_builders_pub_key is defined and bitcoind_pgp_builders_pub_key | length > 0
 
 - name: Bitcoind | Ensure GPG base keyring directory is set as a fact for this OS
   ansible.builtin.set_fact:
     gpg_home_dir: /etc/apt/trusted.gpg.d
 
-- name: "Bitcoind | Ensure group '{{ bitcoin_group }}' exists"
+- name: "Bitcoind | Ensure group '{{ bitcoind_group }}' exists"
   ansible.builtin.group:
-    name: "{{ bitcoin_group }}"
+    name: "{{ bitcoind_group }}"
     state: present
 
-- name: "Bitcoind | Ensure user '{{ bitcoin_user }}' with a primary group of '{{ bitcoin_group }}' exists"
+- name: "Bitcoind | Ensure user '{{ bitcoind_user }}' with a primary group of '{{ bitcoind_group }}' exists"
   ansible.builtin.user:
-    name: "{{ bitcoin_user }}"
-    group: "{{ bitcoin_group }}"
+    name: "{{ bitcoind_user }}"
+    group: "{{ bitcoind_group }}"
     state: present
     password: "*"
-  when: "bitcoin_user != ansible_user"
+  when: "bitcoind_user != ansible_user"
 
-- name: "Bitcoind | Download SHA256SUMS for Bitcoin v{{ bitcoin_version }} into '/tmp/SHA256SUMS'"
+- name: "Bitcoind | Download SHA256SUMS for Bitcoin v{{ bitcoind_version }} into '/tmp/SHA256SUMS'"
   ansible.builtin.get_url:
-    url: https://bitcoincore.org/bin/bitcoin-core-{{ bitcoin_version }}/SHA256SUMS
+    url: https://bitcoincore.org/bin/bitcoin-core-{{ bitcoind_version }}/SHA256SUMS
     dest: /tmp/SHA256SUMS
     http_agent: yourbtc-ansible
 
@@ -38,80 +38,80 @@
   vars:
     gpg_user: "{{ item.name }}"
     gpg_id: "{{ item.id }}"
-  with_items: "{{ bitcoin_pgp_builders_pub_key }}"
-  when: bitcoin_pgp_builders_pub_key is defined and bitcoin_pgp_builders_pub_key | length > 0
+  with_items: "{{ bitcoind_pgp_builders_pub_key }}"
+  when: bitcoind_pgp_builders_pub_key is defined and bitcoind_pgp_builders_pub_key | length > 0
 
-- name: "Bitcoind | Download Bitcoin Core v{{ bitcoin_version }} into '/tmp/bitcoin-core-{{ bitcoin_version }}-{{ bitcoin_arch }}.tar.gz'"
+- name: "Bitcoind | Download Bitcoin Core v{{ bitcoind_version }} into '/tmp/bitcoin-core-{{ bitcoind_version }}-{{ bitcoind_arch }}.tar.gz'"
   ansible.builtin.get_url:
-    url: https://bitcoincore.org/bin/bitcoin-core-{{ bitcoin_version }}/bitcoin-{{ bitcoin_version }}-{{ bitcoin_arch }}.tar.gz
-    dest: /tmp/bitcoin-core-{{ bitcoin_version }}-{{ bitcoin_arch }}.tar.gz
-    checksum: sha256:https://bitcoincore.org/bin/bitcoin-core-{{ bitcoin_version }}/SHA256SUMS
+    url: https://bitcoincore.org/bin/bitcoin-core-{{ bitcoind_version }}/bitcoin-{{ bitcoind_version }}-{{ bitcoind_arch }}.tar.gz
+    dest: /tmp/bitcoin-core-{{ bitcoind_version }}-{{ bitcoind_arch }}.tar.gz
+    checksum: sha256:https://bitcoincore.org/bin/bitcoin-core-{{ bitcoind_version }}/SHA256SUMS
     http_agent: yourbtc-ansible
 
-- name: "Bitcoind | Ensure '/tmp/bitcoin-core-{{ bitcoin_version }}' directory exists"
+- name: "Bitcoind | Ensure '/tmp/bitcoin-core-{{ bitcoind_version }}' directory exists"
   ansible.builtin.file:
-    path: /tmp/bitcoin-core-{{ bitcoin_version }}
+    path: /tmp/bitcoin-core-{{ bitcoind_version }}
     state: directory
 
-- name: "Bitcoind | Unpack 'bitcoin-core-{{ bitcoin_version }}-{{ bitcoin_arch }}.tar.gz' into '/tmp/bitcoin-core-{{ bitcoin_version }}'"
+- name: "Bitcoind | Unpack 'bitcoin-core-{{ bitcoind_version }}-{{ bitcoind_arch }}.tar.gz' into '/tmp/bitcoin-core-{{ bitcoind_version }}'"
   ansible.builtin.unarchive:
-    src: /tmp/bitcoin-core-{{ bitcoin_version }}-{{ bitcoin_arch }}.tar.gz
-    dest: /tmp/bitcoin-core-{{ bitcoin_version }}
+    src: /tmp/bitcoin-core-{{ bitcoind_version }}-{{ bitcoind_arch }}.tar.gz
+    dest: /tmp/bitcoin-core-{{ bitcoind_version }}
     remote_src: yes
     extra_opts:
       - --strip-components=1
 
 - name: "Bitcoind | Install binaries into '/usr/local/bin/*'"
-  ansible.builtin.shell: install -m 0755 -o root -g root -t /usr/local/bin /tmp/bitcoin-core-{{ bitcoin_version }}/bin/*
+  ansible.builtin.shell: install -m 0755 -o root -g root -t /usr/local/bin /tmp/bitcoin-core-{{ bitcoind_version }}/bin/*
 
-- name: "Bitcoind | Copy Bitcoin systemd file into '/lib/systemd/system/bitcoind-{{ bitcoin_network }}.service'"
+- name: "Bitcoind | Copy Bitcoin systemd file into '/lib/systemd/system/bitcoind-{{ bitcoind_network }}.service'"
   ansible.builtin.template:
     src: bitcoind.service.j2
-    dest: /lib/systemd/system/bitcoind-{{ bitcoin_network }}.service
+    dest: /lib/systemd/system/bitcoind-{{ bitcoind_network }}.service
   notify:
     - Bitcoind | Ensure bitcoind systemd unit is restarted
 
-- name: "Bitcoind | Ensure Bitcoin configuration directory '/etc/bitcoin/{{ bitcoin_network }}' exists"
+- name: "Bitcoind | Ensure Bitcoin configuration directory '/etc/bitcoin/{{ bitcoind_network }}' exists"
   ansible.builtin.file:
-    path: /etc/bitcoin/{{ bitcoin_network }}
+    path: /etc/bitcoin/{{ bitcoind_network }}
     state: directory
-    owner: "{{ bitcoin_user }}"
-    group: "{{ bitcoin_group }}"
+    owner: "{{ bitcoind_user }}"
+    group: "{{ bitcoind_group }}"
     mode: 0755
 
-- name: "Bitcoind | Copy bitcoin.conf file into '/etc/bitcoin/{{ bitcoin_network }}'"
+- name: "Bitcoind | Copy bitcoin.conf file into '/etc/bitcoin/{{ bitcoind_network }}'"
   ansible.builtin.template:
     src: bitcoin.conf.j2
-    dest: /etc/bitcoin/{{ bitcoin_network }}/bitcoin.conf
-    owner: "{{ bitcoin_user }}"
-    group: "{{ bitcoin_group }}"
+    dest: /etc/bitcoin/{{ bitcoind_network }}/bitcoin.conf
+    owner: "{{ bitcoind_user }}"
+    group: "{{ bitcoind_group }}"
   notify:
     - Bitcoind | Ensure bitcoind systemd unit is restarted
 
-- name: "Bitcoind | Ensure Bitcoin data directory '{{ bitcoin_data_dir }}' exists"
+- name: "Bitcoind | Ensure Bitcoin data directory '{{ bitcoind_data_dir }}' exists"
   ansible.builtin.file:
-    path: "{{ bitcoin_data_dir }}"
+    path: "{{ bitcoind_data_dir }}"
     state: directory
 
-- name: "Bitcoind | Ensure Bitcoin data directory '{{ bitcoin_data_dir }}' uses the correct permissions"
+- name: "Bitcoind | Ensure Bitcoin data directory '{{ bitcoind_data_dir }}' uses the correct permissions"
   ansible.builtin.file:
-    path: "{{ bitcoin_data_dir }}"
+    path: "{{ bitcoind_data_dir }}"
     state: directory
-    owner: "{{ bitcoin_user }}"
-    group: "{{ bitcoin_group }}"
+    owner: "{{ bitcoind_user }}"
+    group: "{{ bitcoind_group }}"
     mode: 0755
 
-- name: "Bitcoind | Ensure symbolic link from '/etc/bitcoin/{{ bitcoin_network }}' to '/home/{{ bitcoin_user }}/.bitcoin' exists"
+- name: "Bitcoind | Ensure symbolic link from '/etc/bitcoin/{{ bitcoind_network }}' to '/home/{{ bitcoind_user }}/.bitcoin' exists"
   file:
-    src: /etc/bitcoin/{{ bitcoin_network }}
-    dest: /home/{{ bitcoin_user }}/.bitcoin
+    src: /etc/bitcoin/{{ bitcoind_network }}
+    dest: /home/{{ bitcoind_user }}/.bitcoin
     state: link
-    owner: "{{ bitcoin_user }}"
-    group: "{{ bitcoin_group }}"
+    owner: "{{ bitcoind_user }}"
+    group: "{{ bitcoind_group }}"
 
-- name: "Bitcoind | Ensure 'bitcoind-{{ bitcoin_network }}.service' systemd unit is enabled and started"
+- name: "Bitcoind | Ensure 'bitcoind-{{ bitcoind_network }}.service' systemd unit is enabled and started"
   ansible.builtin.systemd:
-    name: bitcoind-{{ bitcoin_network }}.service
+    name: bitcoind-{{ bitcoind_network }}.service
     daemon_reload: yes
     enabled: true
     state: started

@@ -4,7 +4,7 @@
   become: true
 
   vars:
-    bitcoin_network: regtest
-    bitcoin_use_onion: True
+    bitcoind_network: regtest
+    bitcoind_use_onion: True
   roles:
     - fooock.bitcoind

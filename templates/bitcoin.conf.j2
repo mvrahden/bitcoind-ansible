@@ -1,35 +1,35 @@
-chain={{ bitcoin_network }}
-pid=/run/bitcoind/{{ bitcoin_network }}/bitcoind.pid
-datadir={{ bitcoin_data_dir }}
+chain={{ bitcoind_network }}
+pid=/run/bitcoind/{{ bitcoind_network }}/bitcoind.pid
+datadir={{ bitcoind_data_dir }}
 
 daemon=1
 server=1
 txindex=1
 whitelist=127.0.0.1
 
-{% if bitcoin_use_onion %}
+{% if bitcoind_use_onion %}
 onlynet=onion
-proxy={{ bitcoin_onion_proxy }}
+proxy={{ bitcoind_onion_proxy }}
 listen=1
 {% endif %}
 
-zmqpubrawblock=tcp://{{ bitcoin_zmq_host }}:28332
-zmqpubrawtx=tcp://{{ bitcoin_zmq_host }}:28333
-zmqpubhashblock=tcp://{{ bitcoin_zmq_host }}:28332
+zmqpubrawblock=tcp://{{ bitcoind_zmq_host }}:28332
+zmqpubrawtx=tcp://{{ bitcoind_zmq_host }}:28333
+zmqpubhashblock=tcp://{{ bitcoind_zmq_host }}:28332
 
-[{{ bitcoin_network }}]
-bind={{ bitcoin_bind }}
-rpcbind={{ bitcoin_rpc_bind }}
-rpcport={{ bitcoin_rpc_port }}
-{% if bitcoin_rpc_allow_ip %}
-{% set bitcoin_rpc_allow_ips = (bitcoin_rpc_allow_ips|default([])).append(bitcoin_rpc_allow_ip) %}
+[{{ bitcoind_network }}]
+bind={{ bitcoind_bind }}
+rpcbind={{ bitcoind_rpc_bind }}
+rpcport={{ bitcoind_rpc_port }}
+{% if bitcoind_rpc_allow_ip %}
+{% set bitcoind_rpc_allow_ips = (bitcoind_rpc_allow_ips|default([])).append(bitcoind_rpc_allow_ip) %}
 {% endif %}
-{% for item in bitcoin_rpc_allow_ips %}
+{% for item in bitcoind_rpc_allow_ips %}
 rpcallowip={{ item }}
 {% endfor %}
-{% if bitcoin_rpc_auth %}
-rpcauth={{ bitcoin_rpc_auth }}
+{% if bitcoind_rpc_auth %}
+rpcauth={{ bitcoind_rpc_auth }}
 {% else %}
-rpcuser={{ bitcoin_rpc_user }}
-rpcpassword={{ bitcoin_rpc_password }}
+rpcuser={{ bitcoind_rpc_user }}
+rpcpassword={{ bitcoind_rpc_password }}
 {% endif %}
