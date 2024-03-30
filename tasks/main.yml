@@ -26,6 +26,7 @@
     group: "{{ bitcoin_group }}"
     state: present
     password: "*"
+  when: "bitcoin_user != ansible_user"
 
 - name: "Bitcoind | Download SHA256SUMS for Bitcoin v{{ bitcoin_version }} into '/tmp/SHA256SUMS'"
   ansible.builtin.get_url:
