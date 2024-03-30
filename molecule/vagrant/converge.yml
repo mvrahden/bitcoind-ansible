@@ -7,5 +7,6 @@
 
   vars:
     bitcoind_network: signet
+    bitcoind_use_onion: true
   roles:
     - fooock.bitcoind

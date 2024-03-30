@@ -26,7 +26,7 @@
     group: "{{ bitcoind_group }}"
     state: present
     password: "*"
-  when: "bitcoind_user != ansible_user"
+  when: "ansible_user is not defined or bitcoind_user != ansible_user"
 
 - name: "Bitcoind | Download SHA256SUMS for Bitcoin v{{ bitcoind_version }} into '/tmp/SHA256SUMS'"
   ansible.builtin.get_url:
@@ -62,7 +62,13 @@
       - --strip-components=1
 
 - name: "Bitcoind | Install binaries into '/usr/local/bin/*'"
-  ansible.builtin.shell: install -m 0755 -o root -g root -t /usr/local/bin /tmp/bitcoin-core-{{ bitcoind_version }}/bin/*
+  ansible.builtin.copy:
+    src: /tmp/bitcoin-core-{{ bitcoind_version }}/bin/
+    dest: /usr/local/bin/
+    remote_src: yes
+    owner: root
+    group: root
+    mode: 0755
 
 - name: "Bitcoind | Copy Bitcoin systemd file into '/lib/systemd/system/bitcoind-{{ bitcoind_network }}.service'"
   ansible.builtin.template:
@@ -102,7 +108,7 @@
     mode: 0755
 
 - name: "Bitcoind | Ensure symbolic link from '/etc/bitcoin/{{ bitcoind_network }}' to '/home/{{ bitcoind_user }}/.bitcoin' exists"
-  file:
+  ansible.builtin.file:
     src: /etc/bitcoin/{{ bitcoind_network }}
     dest: /home/{{ bitcoind_user }}/.bitcoin
     state: link
