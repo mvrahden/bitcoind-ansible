@@ -7,4 +7,4 @@
     bitcoind_network: regtest
     bitcoind_use_onion: true
   roles:
-    - fooock.bitcoind
+    - mvrahden.bitcoind

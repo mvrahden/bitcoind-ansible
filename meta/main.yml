@@ -1,5 +1,5 @@
 galaxy_info:
-  author: fooock
+  author: mvrahden
   description: Bitcoin Core client as a Systemd service
   role_name: bitcoind
   license: MIT
