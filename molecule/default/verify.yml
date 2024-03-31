@@ -4,18 +4,28 @@
   become: true
   gather_facts: false
   vars:
-    bitcoin_version: 26.0
+    bitcoind_version: 26.0
 
   tasks:
-    - name: "Retrieve information from /usr/local/bitcoin-core-{{ bitcoin_version }}"
-      stat:
-        path: "/usr/local/bitcoin-core-{{ bitcoin_version }}"
-      register: bitcoin_directory
+    - name: "Retrieve information from /usr/local/bitcoin-core-{{ bitcoind_version }}"
+      ansible.builtin.stat:
+        path: "/usr/local/bin/{{ item }}"
+      register: bitcoind_bins
+      with_items:
+        - bitcoin-cli
+        - bitcoin-qt
+        - bitcoin-tx
+        - bitcoin-util
+        - bitcoin-wallet
+        - bitcoind
+        - test_bitcoin
 
-    - name: "Test that Bitcoin Core v{{ bitcoin_version }} directory was created correctly"
-      assert:
+    - name: "Test that binaries were copied correctly for Bitcoin Core v{{ bitcoind_version }}"
+      ansible.builtin.assert:
         that:
-          - bitcoin_directory.stat.exists
-          - bitcoin_directory.stat.isdir
-          - bitcoin_directory.stat.pw_name == 'bitcoin'
-          - bitcoin_directory.stat.gr_name == 'bitcoin'
+          - item.stat.exists
+          - item.stat.executable
+          - item.stat.pw_name == 'root'
+          - item.stat.gr_name == 'root'
+          - item.stat.mode == '0755'
+      with_items: "{{ bitcoind_bins.results }}"
