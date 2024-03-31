@@ -1,6 +1,6 @@
 # Bitcoin Core Ansible role
 
-![GitHub Workflow Status (with branch)](https://img.shields.io/github/actions/workflow/status/fooock/bitcoind-ansible/ansible.yml?branch=main&label=Ansible%20Tests&logo=github&style=for-the-badge)
+![GitHub Workflow Status (with branch)](https://img.shields.io/github/actions/workflow/status/mvrahden/bitcoind-ansible/ansible.yml?branch=main&label=Ansible%20Tests&logo=github&style=for-the-badge)
 
 Ansible role to install the [Bitcoin Core](https://bitcoincore.org/en/about/) client as a `systemd` service. By default,
 it uses sane defaults and some hardening measures for the Systemd service.
@@ -32,7 +32,7 @@ Create a playbook like this one:
 ```yaml
 - hosts: bitcoind
   roles:
-    - role: fooock.bitcoind
+    - role: mvrahden.bitcoind
       become: yes
 ```
 
@@ -45,7 +45,7 @@ If you want to install the Bitcoin node into a Raspberry Pi, just change the arc
   vars:
     bitcoind_arch: aarch64-linux-gnu
   roles:
-    - role: fooock.bitcoind
+    - role: mvrahden.bitcoind
 ```
 
 ### Testing
@@ -89,7 +89,6 @@ To configure the Bitcoin node, you can use the following variables:
 | `bitcoind_zmq_host`      | `127.0.0.1`       |                                                      |
 | `bitcoind_bind`          | `127.0.0.1`       |                                                      |
 | `bitcoind_rpc_bind`      | `127.0.0.1`       | This is where to expose the RPC server               |
-| `bitcoind_rpc_allow_ip`  | `None`            | This can be an IP or a range like `10.0.0.0/24`      |
 | `bitcoind_rpc_allow_ips` | `[127.0.0.1]`     | This can be an IP or a range like `10.0.0.0/24`      |
 | `bitcoind_use_onion`     | `False`           | This enables onion support                           |
 | `bitcoind_onion_proxy`   | `127.0.0.1:9050`  |                                                      |

@@ -31,7 +31,6 @@ bitcoind_rpc_auth: bitcoin:2e00f3e1e6b96957fe9ea0ab3916eb16$c8f9f556c48dd43ebbe9
 # bitcoind_rpc_password: bitcoin
 bitcoind_rpc_bind: 127.0.0.1
 bitcoind_rpc_port: 8332
-bitcoind_rpc_allow_ip: null
 bitcoind_rpc_allow_ips:
   - 127.0.0.1
 
