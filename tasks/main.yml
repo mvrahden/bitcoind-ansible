@@ -1,7 +1,7 @@
 ---
 - name: Bitcoind | Ensure dependencies are installed
   ansible.builtin.apt:
-    update_cache: yes
+    update_cache: true
     name: "{{ item }}"
     state: present
   with_items:
@@ -58,7 +58,7 @@
   ansible.builtin.unarchive:
     src: /tmp/bitcoin-core-{{ bitcoind_version }}-{{ bitcoind_arch }}.tar.gz
     dest: /tmp/bitcoin-core-{{ bitcoind_version }}
-    remote_src: yes
+    remote_src: true
     extra_opts:
       - --strip-components=1
 
@@ -66,10 +66,10 @@
   ansible.builtin.copy:
     src: /tmp/bitcoin-core-{{ bitcoind_version }}/bin/
     dest: /usr/local/bin/
-    remote_src: yes
+    remote_src: true
     owner: root
     group: root
-    mode: 0755
+    mode: "0755"
 
 - name: "Bitcoind | Copy Bitcoin systemd file into '/lib/systemd/system/bitcoind-{{ bitcoind_network }}.service'"
   ansible.builtin.template:
@@ -78,13 +78,13 @@
   notify:
     - Bitcoind | Ensure bitcoind systemd unit is restarted
 
-- name: "Bitcoind | Ensure Bitcoin configuration directory '/etc/bitcoind/{{ bitcoind_network }}' exists"
+- name: "Bitcoind | Ensure Bitcoin configuration directory exists ('/etc/bitcoind/{{ bitcoind_network }}')"
   ansible.builtin.file:
     path: /etc/bitcoind/{{ bitcoind_network }}
     state: directory
     owner: "{{ bitcoind_user }}"
     group: "{{ bitcoind_group }}"
-    mode: 0755
+    mode: "0755"
 
 - name: "Bitcoind | Copy bitcoin.conf file into '/etc/bitcoind/{{ bitcoind_network }}'"
   ansible.builtin.template:
@@ -95,18 +95,18 @@
   notify:
     - Bitcoind | Ensure bitcoind systemd unit is restarted
 
-- name: "Bitcoind | Ensure Bitcoin data directory '{{ bitcoind_data_dir }}' exists"
+- name: "Bitcoind | Ensure Bitcoin data directory exists ('{{ bitcoind_data_dir }}')"
   ansible.builtin.file:
     path: "{{ bitcoind_data_dir }}"
     state: directory
 
-- name: "Bitcoind | Ensure Bitcoin data directory '{{ bitcoind_data_dir }}' uses the correct permissions"
+- name: "Bitcoind | Ensure Bitcoin data directory uses the correct permissions ('{{ bitcoind_data_dir }}')"
   ansible.builtin.file:
     path: "{{ bitcoind_data_dir }}"
     state: directory
     owner: "{{ bitcoind_user }}"
     group: "{{ bitcoind_group }}"
-    mode: 0755
+    mode: "0755"
 
 - name: "Bitcoind | Ensure symbolic link from '/etc/bitcoind/{{ bitcoind_network }}' to '/home/{{ bitcoind_user }}/.bitcoin' exists"
   ansible.builtin.file:
@@ -119,6 +119,6 @@
 - name: "Bitcoind | Ensure 'bitcoind-{{ bitcoind_network }}.service' systemd unit is enabled and started"
   ansible.builtin.systemd:
     name: bitcoind-{{ bitcoind_network }}.service
-    daemon_reload: yes
+    daemon_reload: true
     enabled: true
     state: started
