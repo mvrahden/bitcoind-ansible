@@ -21,9 +21,6 @@ zmqpubhashblock=tcp://{{ bitcoind_zmq_host }}:28332
 bind={{ bitcoind_bind }}
 rpcbind={{ bitcoind_rpc_bind }}
 rpcport={{ bitcoind_rpc_port }}
-{% if bitcoind_rpc_allow_ip %}
-{% set bitcoind_rpc_allow_ips = (bitcoind_rpc_allow_ips|default([])).append(bitcoind_rpc_allow_ip) %}
-{% endif %}
 {% for item in bitcoind_rpc_allow_ips %}
 rpcallowip={{ item }}
 {% endfor %}

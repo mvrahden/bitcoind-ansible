@@ -89,7 +89,6 @@ To configure the Bitcoin node, you can use the following variables:
 | `bitcoind_zmq_host`      | `127.0.0.1`       |                                                      |
 | `bitcoind_bind`          | `127.0.0.1`       |                                                      |
 | `bitcoind_rpc_bind`      | `127.0.0.1`       | This is where to expose the RPC server               |
-| `bitcoind_rpc_allow_ip`  | `None`            | This can be an IP or a range like `10.0.0.0/24`      |
 | `bitcoind_rpc_allow_ips` | `[127.0.0.1]`     | This can be an IP or a range like `10.0.0.0/24`      |
 | `bitcoind_use_onion`     | `False`           | This enables onion support                           |
 | `bitcoind_onion_proxy`   | `127.0.0.1:9050`  |                                                      |
