@@ -34,7 +34,8 @@
     dest: /tmp/SHA256SUMS
     http_agent: yourbtc-ansible
 
-- include_tasks: gpg.yml
+- name: "Bitcoind | Verify signature with given keys"
+  ansible.builtin.include_tasks: gpg.yml
   vars:
     gpg_user: "{{ item.name }}"
     gpg_id: "{{ item.id }}"
