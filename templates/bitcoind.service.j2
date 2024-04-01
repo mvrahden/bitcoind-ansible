@@ -5,7 +5,7 @@
 # See "man systemd.service" for details.
 
 # Note that almost all daemon options could be specified in
-# /etc/bitcoin/bitcoin.conf, but keep in mind those explicitly
+# /etc/bitcoind/{{ bitcoind_network }}/bitcoin.conf, but keep in mind those explicitly
 # specified as arguments in ExecStart= will override those in the
 # config file.
 
@@ -19,11 +19,11 @@ Wants=network-online.target
 
 [Service]
 ExecStart=/usr/local/bin/bitcoind -daemonwait \
-                            -conf=/etc/bitcoin/{{ bitcoind_network }}/bitcoin.conf \
+                            -conf=/etc/bitcoind/{{ bitcoind_network }}/bitcoind.conf \
 
 # Make sure the config directory is readable by the service user
 PermissionsStartOnly=true
-# ExecStartPre=/bin/chgrp bitcoin /etc/bitcoin
+# ExecStartPre=/bin/chgrp bitcoin /etc/bitcoind
 
 # Process management
 ####################
@@ -47,9 +47,9 @@ Group={{ bitcoind_group }}
 RuntimeDirectory=bitcoind/{{ bitcoind_network }}
 RuntimeDirectoryMode=0710
 
-# /etc/bitcoin/{{ bitcoind_network }}
-ConfigurationDirectory=bitcoin/{{ bitcoind_network }}
-ConfigurationDirectoryMode=0710
+# /etc/bitcoind/{{ bitcoind_network }}
+ConfigurationDirectory=bitcoind/{{ bitcoind_network }}
+ConfigurationDirectoryMode=0755
 
 # /var/lib/bitcoind
 StateDirectory=bitcoind

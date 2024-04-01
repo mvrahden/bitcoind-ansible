@@ -38,5 +38,7 @@ bitcoind_rpc_allow_ips:
 # to receive raw block and transaction updates.
 bitcoind_zmq_host: 127.0.0.1
 
-bitcoind_use_onion: False
+bitcoind_use_onion: false
 bitcoind_onion_proxy: 127.0.0.1:9050
+bitcoind_onion_nodes: [] # see: https://bitnodes.io/nodes/?q=Tor%20network
+  # - tsr2f2pjzvkjn32gt6dnfjzmgbbq6kjj62d3jgedwx4qr2ku3tb7pvqd.onion:8333

@@ -11,6 +11,9 @@ whitelist=127.0.0.1
 onlynet=onion
 proxy={{ bitcoind_onion_proxy }}
 listen=1
+{% for item in bitcoind_onion_nodes %}
+addnode={{ item }}
+{% endfor %}
 {% endif %}
 
 zmqpubrawblock=tcp://{{ bitcoind_zmq_host }}:28332

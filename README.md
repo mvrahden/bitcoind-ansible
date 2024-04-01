@@ -5,14 +5,13 @@
 Ansible role to install the [Bitcoin Core](https://bitcoincore.org/en/about/) client as a `systemd` service. By default,
 it uses sane defaults and some hardening measures for the Systemd service.
 
-By default, all binaries are installed inside `/usr/local/bitcoin-core-<version>/bin` directory. So for example, if you
-are installing the version `23.0`, if you want to invoke the `bitcoin-cli` binary, you will need to
-use `/usr/local/bitcoin-core-23.0/bin/bitcoin-cli`. Note this is the case for the rest of the binaries from Bitcoin.
+## Summary: What does it do?
 
-Usually, you don't need the absolute binary path since this role creates a symbolic link
-to `/home/<user>/.bitcoin`. Using absolute routes is only useful when doing updates to the binary and a rollback is
-required
-or to using a specific binary version to execute an operation.
+- Sets up user, if not single user system
+- Downloads bitcoin core and verifies signatures
+- Installs all shipped binaries to `/usr/local/bin` (i.e. `bitcoin-cli`, `bitcoind`, ...)
+- Sets up a systemd service with configuration at `/etc/bitcoind/<network>/bitcoind.conf`
+- Links `/home/<user>/.bitcoin` to `/etc/bitcoind/<network>`
 
 ## Requirements
 
@@ -79,19 +78,20 @@ To configure the Bitcoin node, you can use the following variables:
 > Use [rpcauth.yp](https://raw.githubusercontent.com/bitcoin/bitcoin/master/share/rpcauth/rpcauth.py) to
 > generate `rpcauth` credentials.
 
-| Name                    | Value             | Note                                                 |
-| ----------------------- | ----------------- | ---------------------------------------------------- |
-| `bitcoind_data_dir`      | `/data/bitcoin`   |                                                      |
-| `bitcoind_network`       | `main`            | Valid values are: `regtest`, `signet` and `test`     |
-| `bitcoind_rpc_auth`      | `bitcoin:2e00...` | Prevent your password from being stored as cleartext |
-| `bitcoind_rpc_user`      | `bitcoin`         | If possible use `btc_rpc_auth` instead               |
-| `bitcoind_rpc_password`  | `bitcoin`         | If possible use `btc_rpc_auth` instead               |
-| `bitcoind_zmq_host`      | `127.0.0.1`       |                                                      |
-| `bitcoind_bind`          | `127.0.0.1`       |                                                      |
-| `bitcoind_rpc_bind`      | `127.0.0.1`       | This is where to expose the RPC server               |
-| `bitcoind_rpc_allow_ips` | `[127.0.0.1]`     | This can be an IP or a range like `10.0.0.0/24`      |
-| `bitcoind_use_onion`     | `False`           | This enables onion support                           |
-| `bitcoind_onion_proxy`   | `127.0.0.1:9050`  |                                                      |
+| Name                     | Value                      | Note                                                 |
+| ------------------------ | -------------------------- | ---------------------------------------------------- |
+| `bitcoind_data_dir`      | `/data/bitcoin`            |                                                      |
+| `bitcoind_network`       | `main`                     | Valid values are: `regtest`, `signet` and `test`     |
+| `bitcoind_rpc_auth`      | `bitcoin:2e00...`          | Prevent your password from being stored as cleartext |
+| `bitcoind_rpc_user`      | `bitcoin`                  | If possible use `btc_rpc_auth` instead               |
+| `bitcoind_rpc_password`  | `bitcoin`                  | If possible use `btc_rpc_auth` instead               |
+| `bitcoind_zmq_host`      | `127.0.0.1`                |                                                      |
+| `bitcoind_bind`          | `127.0.0.1`                |                                                      |
+| `bitcoind_rpc_bind`      | `127.0.0.1`                | This is where to expose the RPC server               |
+| `bitcoind_rpc_allow_ips` | `[127.0.0.1]`              | This can be an IP or a range like `10.0.0.0/24`      |
+| `bitcoind_use_onion`     | `False`                    | This enables onion support                           |
+| `bitcoind_onion_proxy`   | `127.0.0.1:9050`           |                                                      |
+| `bitcoind_onion_nodes`   | `['tsr2f2....onion:8333']` |                                                      |
 
 ### GPG verification
 
