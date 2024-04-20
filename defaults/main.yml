@@ -7,6 +7,12 @@ bitcoind_group: bitcoin
 bitcoind_version: 26.0
 bitcoind_arch: x86_64-linux-gnu
 
+# Serve JOSN-RPC
+bitcoind_server: true
+
+# Wallet
+bitcoind_disablewallet: false
+
 # Bitcoin GPG public keys. Name must match the ones found in
 # this link https://github.com/bitcoin-core/guix.sigs. The ID of each
 # user can be found here https://github.com/bitcoin/bitcoin/blob/23.x/contrib/builder-keys/keys.txt
@@ -38,7 +44,12 @@ bitcoind_rpc_allow_ips:
 # to receive raw block and transaction updates.
 bitcoind_zmq_host: 127.0.0.1
 
-bitcoind_use_onion: false
-bitcoind_onion_proxy: 127.0.0.1:9050
-bitcoind_onion_nodes: [] # see: https://bitnodes.io/nodes/?q=Tor%20network
+bitcoind_proxy: 127.0.0.1:9050
+
+bitcoind_nodes: []
+  # For clearnet, see: https://bitnodes.io/nodes/?q=Tor%20network
+  # - 82.101.236.91:8333
+  # For Tor, see: https://bitnodes.io/nodes/?q=Tor%20network
   # - tsr2f2pjzvkjn32gt6dnfjzmgbbq6kjj62d3jgedwx4qr2ku3tb7pvqd.onion:8333
+
+bitcoind_use_onion: false
