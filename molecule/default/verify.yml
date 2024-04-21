@@ -7,7 +7,7 @@
     bitcoind_version: 27.0
 
   tasks:
-    - name: "Retrieve information from /usr/local/bitcoin-core-{{ bitcoind_version }}"
+    - name: "Retrieve information from /usr/local/bin/*"
       ansible.builtin.stat:
         path: "/usr/local/bin/{{ item }}"
       register: bitcoind_bins

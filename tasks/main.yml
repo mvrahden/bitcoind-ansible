@@ -62,6 +62,15 @@
     extra_opts:
       - --strip-components=1
 
+- name: "Bitcoind | Ensure 'bitcoind-{{ bitcoind_network }}.service' systemd unit is stopped"
+  ansible.builtin.systemd:
+    name: bitcoind-{{ bitcoind_network }}.service
+    state: stopped
+  register: _bitcoind_systemd_stop
+  failed_when:
+    - _bitcoind_systemd_stop.failed
+    - "'Could not find the requested service' not in _bitcoind_systemd_stop.msg"
+
 - name: "Bitcoind | Install binaries into '/usr/local/bin/*'"
   ansible.builtin.copy:
     src: /tmp/bitcoin-core-{{ bitcoind_version }}/bin/
