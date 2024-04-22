@@ -28,6 +28,19 @@
     password: "*"
   when: "ansible_user is not defined or bitcoind_user != ansible_user"
 
+- name: "Bitcoind | Ensure Bitcoin data directory exists ('{{ bitcoind_data_dir }}')"
+  ansible.builtin.file:
+    path: "{{ bitcoind_data_dir }}"
+    state: directory
+
+- name: "Bitcoind | Ensure Bitcoin data directory uses the correct permissions ('{{ bitcoind_data_dir }}')"
+  ansible.builtin.file:
+    path: "{{ bitcoind_data_dir }}"
+    state: directory
+    owner: "{{ bitcoind_user }}"
+    group: "{{ bitcoind_group }}"
+    mode: "0755"
+
 - name: "Bitcoind | Download SHA256SUMS for Bitcoin v{{ bitcoind_version }} into '/tmp/SHA256SUMS'"
   ansible.builtin.get_url:
     url: https://bitcoincore.org/bin/bitcoin-core-{{ bitcoind_version }}/SHA256SUMS
@@ -95,6 +108,14 @@
     group: "{{ bitcoind_group }}"
     mode: "0755"
 
+- name: "Bitcoind | Ensure symbolic link from '/etc/bitcoind/{{ bitcoind_network }}' to '/home/{{ bitcoind_user }}/.bitcoin' exists"
+  ansible.builtin.file:
+    src: /etc/bitcoind/{{ bitcoind_network }}
+    dest: /home/{{ bitcoind_user }}/.bitcoin
+    state: link
+    owner: "{{ bitcoind_user }}"
+    group: "{{ bitcoind_group }}"
+
 - name: "Bitcoind | Copy bitcoin.conf file into '/etc/bitcoind/{{ bitcoind_network }}'"
   ansible.builtin.template:
     src: bitcoin.conf.j2
@@ -103,27 +124,6 @@
     group: "{{ bitcoind_group }}"
   notify:
     - Bitcoind | Ensure bitcoind systemd unit is restarted
-
-- name: "Bitcoind | Ensure Bitcoin data directory exists ('{{ bitcoind_data_dir }}')"
-  ansible.builtin.file:
-    path: "{{ bitcoind_data_dir }}"
-    state: directory
-
-- name: "Bitcoind | Ensure Bitcoin data directory uses the correct permissions ('{{ bitcoind_data_dir }}')"
-  ansible.builtin.file:
-    path: "{{ bitcoind_data_dir }}"
-    state: directory
-    owner: "{{ bitcoind_user }}"
-    group: "{{ bitcoind_group }}"
-    mode: "0755"
-
-- name: "Bitcoind | Ensure symbolic link from '/etc/bitcoind/{{ bitcoind_network }}' to '/home/{{ bitcoind_user }}/.bitcoin' exists"
-  ansible.builtin.file:
-    src: /etc/bitcoind/{{ bitcoind_network }}
-    dest: /home/{{ bitcoind_user }}/.bitcoin
-    state: link
-    owner: "{{ bitcoind_user }}"
-    group: "{{ bitcoind_group }}"
 
 - name: "Bitcoind | Ensure 'bitcoind-{{ bitcoind_network }}.service' systemd unit is enabled and started"
   ansible.builtin.systemd:
