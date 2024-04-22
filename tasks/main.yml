@@ -120,26 +120,18 @@
   notify:
     - Bitcoind | Ensure bitcoind systemd unit is restarted
 
-- name: "Bitcoind | Ensure Bitcoin configuration directory exists ('/etc/bitcoind/{{ bitcoind_network }}')"
-  ansible.builtin.file:
-    path: /etc/bitcoind/{{ bitcoind_network }}
-    state: directory
-    owner: "{{ bitcoind_user }}"
-    group: "{{ bitcoind_group }}"
-    mode: "0755"
-
 - name: "Bitcoind | Ensure symbolic link from '/etc/bitcoind/{{ bitcoind_network }}' to '/home/{{ bitcoind_user }}/.bitcoin' exists"
   ansible.builtin.file:
-    src: /etc/bitcoind/{{ bitcoind_network }}
+    src: "{{ bitcoind_data_dir }}"
     dest: /home/{{ bitcoind_user }}/.bitcoin
     state: link
     owner: "{{ bitcoind_user }}"
     group: "{{ bitcoind_group }}"
 
-- name: "Bitcoind | Copy bitcoin.conf file into '/etc/bitcoind/{{ bitcoind_network }}'"
+- name: "Bitcoind | Copy bitcoin.conf file into '{{ bitcoind_data_dir }}/bitcoind.conf'"
   ansible.builtin.template:
     src: bitcoin.conf.j2
-    dest: /etc/bitcoind/{{ bitcoind_network }}/bitcoind.conf
+    dest: "{{ bitcoind_data_dir }}/bitcoind.conf"
     owner: "{{ bitcoind_user }}"
     group: "{{ bitcoind_group }}"
   notify:
