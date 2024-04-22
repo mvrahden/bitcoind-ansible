@@ -1,4 +1,8 @@
 ---
+- name: Bitcoind | Set current version fact
+  ansible.builtin.set_fact:
+    _bitcoind_change_version: false # default
+
 - name: Bitcoind | Ensure dependencies are installed
   ansible.builtin.apt:
     update_cache: true
@@ -41,6 +45,21 @@
     group: "{{ bitcoind_group }}"
     mode: "0755"
 
+- name: "Bitcoind | Load version cookie file"
+  slurp:
+    src: "{{ bitcoind_data_dir }}/.bitcoind.version"
+  register: _bitcoind_version_cookie_file
+  ignore_errors: true
+
+- name: "Bitcoind | Determine version change from version cookie vs. configured version"
+  set_fact:
+    _bitcoind_change_version: "{{ _bitcoind_version_cookie_file['content'] | b64decode | regex_findall('(\\d+\\.\\d+)') | first is version(bitcoind_version, '!=' , strict=true)}}"
+  when: "not _bitcoind_version_cookie_file.failed"
+
+- name: "Bitcoind | Debug detected version change from cookie"
+  debug:
+    msg: "{{ _bitcoind_change_version }}"
+
 - name: "Bitcoind | Download SHA256SUMS for Bitcoin v{{ bitcoind_version }} into '/tmp/SHA256SUMS'"
   ansible.builtin.get_url:
     url: https://bitcoincore.org/bin/bitcoin-core-{{ bitcoind_version }}/SHA256SUMS
@@ -80,6 +99,7 @@
     name: bitcoind-{{ bitcoind_network }}.service
     state: stopped
   register: _bitcoind_systemd_stop
+  when: _bitcoind_change_version
   failed_when:
     - _bitcoind_systemd_stop.failed
     - "'Could not find the requested service' not in _bitcoind_systemd_stop.msg"
@@ -131,3 +151,8 @@
     daemon_reload: true
     enabled: true
     state: started
+
+- name: "Bitcoind | Ensure version cookie file set"
+  ansible.builtin.template:
+    src: .bitcoind.version.j2
+    dest: "{{ bitcoind_data_dir }}/.bitcoind.version"
