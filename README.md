@@ -20,7 +20,7 @@ This role requires a user with `sudo` permissions to work properly.
 List of officially supported operating systems:
 
 | ID           | Name         | Status             |
-|--------------|--------------|--------------------|
+| ------------ | ------------ | ------------------ |
 | `ubuntu2004` | Ubuntu 20.04 | :white_check_mark: |
 | `ubuntu2204` | Ubuntu 22.04 | :white_check_mark: |
 
@@ -64,12 +64,12 @@ the operating system ID mentioned in the requirements table.
 You can change some variables to install this role to fit your needs. The default values to install the
 Bitcoin node are the following ones:
 
-| Name                | Value                |
-|---------------------|----------------------|
-| `bitcoind_user`      | `bitcoin`            |
-| `bitcoind_group`     | `bitcoin`            |
-| `bitcoind_version`   | `26.0`               |
-| `bitcoind_arch`      | `x86_64-linux-gnu`   |
+| Name               | Value              |
+| ------------------ | ------------------ |
+| `bitcoind_user`    | `bitcoin`          |
+| `bitcoind_group`   | `bitcoin`          |
+| `bitcoind_version` | `27.0`             |
+| `bitcoind_arch`    | `x86_64-linux-gnu` |
 
 > If you want to install Bitcoin into a Raspberry you need to change the architecture to `aarch64-linux-gnu`.
 
@@ -99,10 +99,10 @@ By default, this installer uses `gpg` to verify the integrity and signature of t
 behaviour is controlled by the `bitcoind_pgp_builders_pub_key` field. The content of this structure and default values
 are the following:
 
-| Name         | ID                                           |
-|--------------|----------------------------------------------|
-| `laanwj`     | `71A3B16735405025D447E8F274810B012346C9A6`   |
-| `fanquake`   | `E777299FC265DD04793070EB944D35F9AC3DB76A`   |
+| Name       | ID                                         |
+| ---------- | ------------------------------------------ |
+| `laanwj`   | `71A3B16735405025D447E8F274810B012346C9A6` |
+| `fanquake` | `E777299FC265DD04793070EB944D35F9AC3DB76A` |
 
 If you only want to verify with one user, you should use something like this:
 

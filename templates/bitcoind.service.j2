@@ -1,3 +1,4 @@
+## This file is managed by mvrahden/bitcoind-ansible.
 # It is not recommended to modify this file in-place, because it will
 # be overwritten during package upgrades. If you want to add further
 # options or overwrite existing ones then use
@@ -19,7 +20,7 @@ Wants=network-online.target
 
 [Service]
 ExecStart=/usr/local/bin/bitcoind -daemonwait \
-                            -conf=/etc/bitcoind/{{ bitcoind_network }}/bitcoind.conf \
+                            -conf={{ bitcoind_data_dir }}/bitcoind.conf \
 
 # Make sure the config directory is readable by the service user
 PermissionsStartOnly=true
@@ -47,8 +48,8 @@ Group={{ bitcoind_group }}
 RuntimeDirectory=bitcoind/{{ bitcoind_network }}
 RuntimeDirectoryMode=0710
 
-# /etc/bitcoind/{{ bitcoind_network }}
-ConfigurationDirectory=bitcoind/{{ bitcoind_network }}
+# {{ bitcoind_data_dir }}
+ConfigurationDirectory={{ bitcoind_data_dir }}
 ConfigurationDirectoryMode=0755
 
 # /var/lib/bitcoind

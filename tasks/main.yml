@@ -1,4 +1,8 @@
 ---
+- name: Bitcoind | Set current version fact
+  ansible.builtin.set_fact:
+    _bitcoind_change_version: false # default
+
 - name: Bitcoind | Ensure dependencies are installed
   ansible.builtin.apt:
     update_cache: true
@@ -27,6 +31,34 @@
     state: present
     password: "*"
   when: "ansible_user is not defined or bitcoind_user != ansible_user"
+
+- name: "Bitcoind | Ensure Bitcoin data directory exists ('{{ bitcoind_data_dir }}')"
+  ansible.builtin.file:
+    path: "{{ bitcoind_data_dir }}"
+    state: directory
+
+- name: "Bitcoind | Ensure Bitcoin data directory uses the correct permissions ('{{ bitcoind_data_dir }}')"
+  ansible.builtin.file:
+    path: "{{ bitcoind_data_dir }}"
+    state: directory
+    owner: "{{ bitcoind_user }}"
+    group: "{{ bitcoind_group }}"
+    mode: "0755"
+
+- name: "Bitcoind | Load version cookie file"
+  slurp:
+    src: "{{ bitcoind_data_dir }}/.bitcoind.version"
+  register: _bitcoind_version_cookie_file
+  ignore_errors: true
+
+- name: "Bitcoind | Determine version change from version cookie vs. configured version"
+  set_fact:
+    _bitcoind_change_version: "{{ _bitcoind_version_cookie_file['content'] | b64decode | regex_findall('(\\d+\\.\\d+)') | first is version(bitcoind_version, '!=' , strict=true)}}"
+  when: "not _bitcoind_version_cookie_file.failed"
+
+- name: "Bitcoind | Debug detected version change from cookie"
+  debug:
+    msg: "{{ _bitcoind_change_version }}"
 
 - name: "Bitcoind | Download SHA256SUMS for Bitcoin v{{ bitcoind_version }} into '/tmp/SHA256SUMS'"
   ansible.builtin.get_url:
@@ -62,6 +94,16 @@
     extra_opts:
       - --strip-components=1
 
+- name: "Bitcoind | Ensure 'bitcoind-{{ bitcoind_network }}.service' systemd unit is stopped"
+  ansible.builtin.systemd:
+    name: bitcoind-{{ bitcoind_network }}.service
+    state: stopped
+  register: _bitcoind_systemd_stop
+  when: _bitcoind_change_version
+  failed_when:
+    - _bitcoind_systemd_stop.failed
+    - "'Could not find the requested service' not in _bitcoind_systemd_stop.msg"
+
 - name: "Bitcoind | Install binaries into '/usr/local/bin/*'"
   ansible.builtin.copy:
     src: /tmp/bitcoin-core-{{ bitcoind_version }}/bin/
@@ -78,43 +120,22 @@
   notify:
     - Bitcoind | Ensure bitcoind systemd unit is restarted
 
-- name: "Bitcoind | Ensure Bitcoin configuration directory exists ('/etc/bitcoind/{{ bitcoind_network }}')"
-  ansible.builtin.file:
-    path: /etc/bitcoind/{{ bitcoind_network }}
-    state: directory
-    owner: "{{ bitcoind_user }}"
-    group: "{{ bitcoind_group }}"
-    mode: "0755"
-
-- name: "Bitcoind | Copy bitcoin.conf file into '/etc/bitcoind/{{ bitcoind_network }}'"
-  ansible.builtin.template:
-    src: bitcoin.conf.j2
-    dest: /etc/bitcoind/{{ bitcoind_network }}/bitcoind.conf
-    owner: "{{ bitcoind_user }}"
-    group: "{{ bitcoind_group }}"
-  notify:
-    - Bitcoind | Ensure bitcoind systemd unit is restarted
-
-- name: "Bitcoind | Ensure Bitcoin data directory exists ('{{ bitcoind_data_dir }}')"
-  ansible.builtin.file:
-    path: "{{ bitcoind_data_dir }}"
-    state: directory
-
-- name: "Bitcoind | Ensure Bitcoin data directory uses the correct permissions ('{{ bitcoind_data_dir }}')"
-  ansible.builtin.file:
-    path: "{{ bitcoind_data_dir }}"
-    state: directory
-    owner: "{{ bitcoind_user }}"
-    group: "{{ bitcoind_group }}"
-    mode: "0755"
-
 - name: "Bitcoind | Ensure symbolic link from '/etc/bitcoind/{{ bitcoind_network }}' to '/home/{{ bitcoind_user }}/.bitcoin' exists"
   ansible.builtin.file:
-    src: /etc/bitcoind/{{ bitcoind_network }}
+    src: "{{ bitcoind_data_dir }}"
     dest: /home/{{ bitcoind_user }}/.bitcoin
     state: link
     owner: "{{ bitcoind_user }}"
     group: "{{ bitcoind_group }}"
+
+- name: "Bitcoind | Copy bitcoin.conf file into '{{ bitcoind_data_dir }}/bitcoind.conf'"
+  ansible.builtin.template:
+    src: bitcoin.conf.j2
+    dest: "{{ bitcoind_data_dir }}/bitcoind.conf"
+    owner: "{{ bitcoind_user }}"
+    group: "{{ bitcoind_group }}"
+  notify:
+    - Bitcoind | Ensure bitcoind systemd unit is restarted
 
 - name: "Bitcoind | Ensure 'bitcoind-{{ bitcoind_network }}.service' systemd unit is enabled and started"
   ansible.builtin.systemd:
@@ -122,3 +143,8 @@
     daemon_reload: true
     enabled: true
     state: started
+
+- name: "Bitcoind | Ensure version cookie file set"
+  ansible.builtin.template:
+    src: .bitcoind.version.j2
+    dest: "{{ bitcoind_data_dir }}/.bitcoind.version"
