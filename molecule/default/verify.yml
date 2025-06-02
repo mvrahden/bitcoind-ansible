@@ -4,7 +4,7 @@
   become: true
   gather_facts: false
   vars:
-    bitcoind_version: 28.0
+    bitcoind_version: 29.0
 
   tasks:
     - name: "Retrieve information from /usr/local/bin/*"

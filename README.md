@@ -68,7 +68,7 @@ Bitcoin node are the following ones:
 | ------------------ | ------------------ |
 | `bitcoind_user`    | `bitcoin`          |
 | `bitcoind_group`   | `bitcoin`          |
-| `bitcoind_version` | `28.0`             |
+| `bitcoind_version` | `29.0`             |
 | `bitcoind_arch`    | `x86_64-linux-gnu` |
 
 > If you want to install Bitcoin into a Raspberry you need to change the architecture to `aarch64-linux-gnu`.

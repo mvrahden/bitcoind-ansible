@@ -4,7 +4,7 @@ bitcoind_user: bitcoin
 bitcoind_group: bitcoin
 
 # Bitcoin binary information
-bitcoind_version: 28.0
+bitcoind_version: 29.0
 bitcoind_arch: x86_64-linux-gnu
 
 # Serve JOSN-RPC
