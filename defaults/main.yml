@@ -22,6 +22,15 @@ bitcoind_pgp_builders_pub_key:
   - id: E777299FC265DD04793070EB944D35F9AC3DB76A
     name: fanquake
 
+# Data directory mount configuration.
+# Set bitcoind_data_mount_device to have the role manage the fstab entry.
+# Prefer /dev/disk/by-id/ paths over LABEL= to avoid superblock corruption issues.
+# Example: /dev/disk/by-id/ata-Samsung_SSD_860_EVO_500GB_S3Y9NB0K901234-part1
+bitcoind_data_mount_device: ""
+bitcoind_data_mount_path: /data
+bitcoind_data_mount_fstype: ext4
+bitcoind_data_mount_opts: defaults,nofail
+
 # Bitcoin node configuration
 bitcoind_data_dir: /data/bitcoin
 bitcoind_network: main

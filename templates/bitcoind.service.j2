@@ -18,6 +18,9 @@ Documentation=https://github.com/bitcoin/bitcoin/blob/master/doc/init.md
 After=network-online.target
 Wants=network-online.target
 
+# Ensure the data directory mount is available before starting
+RequiresMountsFor={{ bitcoind_data_dir }}
+
 [Service]
 ExecStart=/usr/local/bin/bitcoind -daemonwait \
                             -conf={{ bitcoind_data_dir }}/bitcoind.conf \
@@ -47,10 +50,6 @@ Group={{ bitcoind_group }}
 # /run/bitcoind/{{ bitcoind_network }}
 RuntimeDirectory=bitcoind/{{ bitcoind_network }}
 RuntimeDirectoryMode=0710
-
-# {{ bitcoind_data_dir }}
-ConfigurationDirectory={{ bitcoind_data_dir }}
-ConfigurationDirectoryMode=0755
 
 # /var/lib/bitcoind
 StateDirectory=bitcoind
