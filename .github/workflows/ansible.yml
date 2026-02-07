@@ -16,22 +16,11 @@ jobs:
         distro:
           - ubuntu2004
           - ubuntu2204
-        python-version:
-          - 3.11
     steps:
-      - uses: actions/checkout@v2
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v2
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install dependencies for project
-        run: pip3 install -r molecule/default/requirements.txt
+      - uses: actions/checkout@v4
 
       - name: Test with molecule
-        run: molecule test
+        run: make test DISTRO=${{ matrix.distro }}
         env:
           PY_COLORS: '1'
           ANSIBLE_FORCE_COLOR: '1'
-          MOLECULE_DISTRO: ${{ matrix.distro }}

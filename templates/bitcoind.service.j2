@@ -25,10 +25,6 @@ RequiresMountsFor={{ bitcoind_data_dir }}
 ExecStart=/usr/local/bin/bitcoind -daemonwait \
                             -conf={{ bitcoind_data_dir }}/bitcoind.conf \
 
-# Make sure the config directory is readable by the service user
-PermissionsStartOnly=true
-# ExecStartPre=/bin/chgrp bitcoin /etc/bitcoind
-
 # Process management
 ####################
 
@@ -61,11 +57,12 @@ StateDirectoryMode=0710
 # Provide a private /tmp and /var/tmp.
 PrivateTmp=true
 
-# Mount /usr, /boot/ and /etc read-only for the process.
-ProtectSystem=full
+# Make the entire filesystem read-only, then allow writes only to the data directory.
+ProtectSystem=strict
+ReadWritePaths={{ bitcoind_data_dir }}
 
-# Deny access to /home, /root and /run/user
-# ProtectHome=true
+# Deny access to /home, /root and /run/user.
+ProtectHome=true
 
 # Disallow the process and all of its children to gain
 # new privileges through execve().
@@ -77,6 +74,25 @@ PrivateDevices=true
 
 # Deny the creation of writable and executable memory mappings.
 MemoryDenyWriteExecute=true
+
+# Kernel protection
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+
+# Restrict system calls and capabilities
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ProtectHostname=true
+ProtectClock=true
+
+# Drop all capabilities (bitcoind needs none as non-root)
+CapabilityBoundingSet=
 
 [Install]
 WantedBy=multi-user.target
