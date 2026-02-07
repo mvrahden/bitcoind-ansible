@@ -32,6 +32,15 @@
     password: "*"
   when: "ansible_user is not defined or bitcoind_user != ansible_user"
 
+- name: "Bitcoind | Ensure data device is mounted ('{{ bitcoind_data_mount_path }}')"
+  ansible.posix.mount:
+    path: "{{ bitcoind_data_mount_path }}"
+    src: "{{ bitcoind_data_mount_device }}"
+    fstype: "{{ bitcoind_data_mount_fstype }}"
+    opts: "{{ bitcoind_data_mount_opts }}"
+    state: mounted
+  when: bitcoind_data_mount_device | length > 0
+
 - name: "Bitcoind | Ensure Bitcoin data directory exists ('{{ bitcoind_data_dir }}')"
   ansible.builtin.file:
     path: "{{ bitcoind_data_dir }}"
