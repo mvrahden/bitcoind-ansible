@@ -10,29 +10,15 @@
 # addnode, connect, port, bind, rpcport, rpcbind or wallet, you will also
 # want to read "[Sections]" further down.
 
-# Run on the testnet network
-#testnet=0
-
-# Run on a signet network
-#signet=0
-
-# Run a regression test network
-#regtest=0
-
 # Connect via a SOCKS5 proxy
-#proxy=127.0.0.1:9050
 {% if bitcoind_proxy %}
 proxy={{ bitcoind_proxy }}
 {% endif %}
 
 # Bind to given address and always listen on it. Use [host]:port notation for IPv6
-#bind=<addr>
 {% if bitcoind_network == "main" %}
 bind={{ bitcoind_bind }}
 {% endif %}
-
-# Bind to given address and add permission flags to peers connecting to it. Use [host]:port notation for IPv6
-#whitebind=perm@<addr>
 
 ##############################################################
 ##            Quick Primer on addnode vs connect            ##
@@ -58,27 +44,17 @@ bind={{ bitcoind_bind }}
 ##############################################################
 
 # Use as many addnode= settings as you like to connect to specific peers
-#addnode=69.164.218.197
-#addnode=10.0.0.2:8333
 {% if bitcoind_network == "main" %}
 {% for item in bitcoind_nodes %}
 addnode={{ item }}
 {% endfor %}
 {% endif %}
 
-# Alternatively use as many connect= settings as you like to connect ONLY to specific peers
-#connect=69.164.218.197
-#connect=10.0.0.1:8333
-{% if bitcoind_network == "main" %}
-{% endif %}
-
-# Listening mode, enabled by default except when 'connect' is being used
-#listen=1
+# Listening mode
+{% if bitcoind_listen %}
 listen=1
-
-# Port on which to listen for connections (default: 8333, testnet: 18333, signet: 38333, regtest: 18444)
-#port=
-{% if bitcoind_network == "main" %}
+{% else %}
+listen=0
 {% endif %}
 
 # Maximum number of inbound + outbound connections (default: 125). This option
@@ -100,14 +76,11 @@ listen=1
 #
 
 # server=1 tells Bitcoin-Qt and bitcoind to accept JSON-RPC commands
-#server=0
 {% if bitcoind_server %}
 server=1
 {% endif %}
 
 # Bind to given address to listen for JSON-RPC connections.
-# Refer to the manpage or bitcoind -help for further details.
-#rpcbind=<addr>
 {% if bitcoind_network == "main" %}
 rpcbind={{ bitcoind_rpc_bind }}
 {% endif %}
@@ -115,8 +88,6 @@ rpcbind={{ bitcoind_rpc_bind }}
 # If no rpcpassword is set, rpc cookie auth is sought. The default `-rpccookiefile` name
 # is .cookie and found in the `-datadir` being used for bitcoind. This option is typically used
 # when the server and client are run as the same user.
-#
-# If not, you must set rpcuser and rpcpassword to secure the JSON-RPC API.
 #
 # The config option `rpcauth` can be added to server startup argument. It is set at initialization time
 # using the output from the script in share/rpcauth/rpcauth.py after providing a username:
@@ -135,54 +106,19 @@ rpcbind={{ bitcoind_rpc_bind }}
 # rpcauth=bob:b2dd077cb54591a2f3139e69a897ac$4e71f08d48b4347cf8eff3815c0e25ae2e9a4340474079f55705f40574f4ec99
 rpcauth={{ bitcoind_rpc_auth }}
 
-# How many seconds bitcoin will wait for a complete RPC HTTP request.
-# after the HTTP connection is established.
-#rpcclienttimeout=30
-
 # By default, only RPC connections from localhost are allowed.
 # Specify as many rpcallowip= settings as you like to allow connections from other hosts,
 # either as a single IPv4/IPv6 or with a subnet specification.
-
-# NOTE: opening up the RPC port to hosts outside your local trusted network is NOT RECOMMENDED,
-# because the rpcpassword is transmitted over the network unencrypted.
-
-# server=1 tells Bitcoin-Qt to accept JSON-RPC commands.
-# it is also read by bitcoind to determine if RPC should be enabled
-#rpcallowip=10.1.1.34/255.255.255.0
-#rpcallowip=1.2.3.4/24
-#rpcallowip=2001:db8:85a3:0:0:8a2e:370:7334/96
 {% for item in bitcoind_rpc_allow_ips %}
 rpcallowip={{ item }}
 {% endfor %}
 
 # Listen for RPC connections on this TCP port:
-#rpcport=8332
 {% if bitcoind_network == "main" %}
 rpcport={{ bitcoind_rpc_port }}
 {% endif %}
 
-# You can use Bitcoin or bitcoind to send commands to Bitcoin/bitcoind
-# running on another host using this option:
-#rpcconnect=127.0.0.1
-
-# Wallet options
-
-# Specify where to find wallet, lockfile and logs. If not present, those files will be
-# created as new.
-#wallet=</path/to/dir>
-
-# Create transactions that have enough fees so they are likely to begin confirmation within n blocks (default: 6).
-# This setting is over-ridden by the -paytxfee option.
-#txconfirmtarget=n
-
-# Pay a transaction fee every time you send bitcoins.
-#paytxfee=0.000x
-
 # Miscellaneous options
-
-# Pre-generate this many public/private key pairs, so wallet backups will be valid for
-# both prior transactions and several dozen future transactions.
-#keypool=100
 
 # Maintain coinstats index used by the gettxoutsetinfo RPC (default: 0).
 #coinstatsindex=1
@@ -194,14 +130,6 @@ rpcport={{ bitcoind_rpc_port }}
 # >=550 = target to stay under in MiB.
 #prune=550
 
-# User interface options
-
-# Start Bitcoin minimized
-#min=1
-
-# Minimize to the system tray
-#minimizetotray=1
-
 # Misc/Undocumented Settings
 chain={{ bitcoind_network }}
 pid=/run/bitcoind/{{ bitcoind_network }}/bitcoind.pid
@@ -211,16 +139,19 @@ datadir={{ bitcoind_data_dir }}
 onlynet=onion
 {% endif %}
 
-daemon=1
-txindex=1
+txindex={{ 1 if bitcoind_txindex else 0 }}
 
-whitelist=127.0.0.1
+{% if bitcoind_whitelist %}
+whitelist={{ bitcoind_whitelist }}
+{% endif %}
 
 disablewallet={{ 1 if bitcoind_disablewallet else 0 }}
 
-zmqpubrawblock=tcp://{{ bitcoind_zmq_host }}:28332
-zmqpubrawtx=tcp://{{ bitcoind_zmq_host }}:28333
-zmqpubhashblock=tcp://{{ bitcoind_zmq_host }}:28332
+{% if bitcoind_enable_zmq %}
+zmqpubrawblock=tcp://{{ bitcoind_zmq_host }}:{{ bitcoind_zmq_port_rawblock }}
+zmqpubrawtx=tcp://{{ bitcoind_zmq_host }}:{{ bitcoind_zmq_port_rawtx }}
+zmqpubhashblock=tcp://{{ bitcoind_zmq_host }}:{{ bitcoind_zmq_port_hashblock }}
+{% endif %}
 
 
 # [Sections]
@@ -234,42 +165,33 @@ zmqpubhashblock=tcp://{{ bitcoind_zmq_host }}:28332
 #[main]
 
 # Options only for testnet
-#[test]
 {% if bitcoind_network == "test" %}
 [{{ bitcoind_network }}]
 {% for item in bitcoind_nodes %}
 addnode={{ item }}
 {% endfor %}
-#connect=10.0.0.1:8333
-#port=
 bind={{ bitcoind_bind }}
 rpcport={{ bitcoind_rpc_port }}
 rpcbind={{ bitcoind_rpc_bind }}
 {% endif %}
 
 # Options only for signet
-#[signet]
 {% if bitcoind_network == "signet" %}
 [{{ bitcoind_network }}]
 {% for item in bitcoind_nodes %}
 addnode={{ item }}
 {% endfor %}
-#connect=10.0.0.1:8333
-#port=
 bind={{ bitcoind_bind }}
 rpcport={{ bitcoind_rpc_port }}
 rpcbind={{ bitcoind_rpc_bind }}
 {% endif %}
 
 # Options only for regtest
-#[regtest]
 {% if bitcoind_network == "regtest" %}
 [{{ bitcoind_network }}]
 {% for item in bitcoind_nodes %}
 addnode={{ item }}
 {% endfor %}
-#connect=10.0.0.1:8333
-#port=
 bind={{ bitcoind_bind }}
 rpcport={{ bitcoind_rpc_port }}
 rpcbind={{ bitcoind_rpc_bind }}

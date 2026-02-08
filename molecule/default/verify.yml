@@ -6,6 +6,10 @@
   vars:
     bitcoind_implementation: "{{ lookup('env', 'BITCOIND_IMPL') | default('core', true) }}"
     bitcoind_version: "{{ lookup('env', 'BITCOIND_VERSION') | default('30.2', true) }}"
+    bitcoind_data_dir: /data/bitcoin
+    bitcoind_user: bitcoin
+    bitcoind_group: bitcoin
+    bitcoind_network: regtest
     # Core 30.x: bitcoin wrapper replaces test_bitcoin
     # Knots 29.x: still has test_bitcoin, no bitcoin wrapper
     _core_binaries:
@@ -41,3 +45,65 @@
           - item.stat.gr_name == 'root'
           - item.stat.mode == '0755'
       with_items: "{{ bitcoind_bins.results }}"
+
+    - name: "Check systemd service is running"
+      ansible.builtin.systemd:
+        name: "bitcoind-{{ bitcoind_network }}.service"
+      register: _service_state
+
+    - name: "Test that systemd service is active"
+      ansible.builtin.assert:
+        that:
+          - _service_state.status.ActiveState == 'active'
+          - _service_state.status.SubState == 'running'
+
+    - name: "Check config file"
+      ansible.builtin.stat:
+        path: "{{ bitcoind_data_dir }}/bitcoind.conf"
+      register: _config_stat
+
+    - name: "Test config file permissions"
+      ansible.builtin.assert:
+        that:
+          - _config_stat.stat.exists
+          - _config_stat.stat.pw_name == bitcoind_user
+          - _config_stat.stat.gr_name == bitcoind_group
+          - _config_stat.stat.mode == '0640'
+
+    - name: "Check data directory"
+      ansible.builtin.stat:
+        path: "{{ bitcoind_data_dir }}"
+      register: _data_dir_stat
+
+    - name: "Test data directory permissions"
+      ansible.builtin.assert:
+        that:
+          - _data_dir_stat.stat.exists
+          - _data_dir_stat.stat.isdir
+          - _data_dir_stat.stat.pw_name == bitcoind_user
+          - _data_dir_stat.stat.gr_name == bitcoind_group
+          - _data_dir_stat.stat.mode == '0750'
+
+    - name: "Check version cookie file"
+      ansible.builtin.stat:
+        path: "{{ bitcoind_data_dir }}/.bitcoind.version"
+      register: _cookie_stat
+
+    - name: "Test version cookie file exists"
+      ansible.builtin.assert:
+        that:
+          - _cookie_stat.stat.exists
+          - _cookie_stat.stat.pw_name == bitcoind_user
+          - _cookie_stat.stat.gr_name == bitcoind_group
+
+    - name: "Check symlink"
+      ansible.builtin.stat:
+        path: "/home/{{ bitcoind_user }}/.bitcoin"
+      register: _symlink_stat
+
+    - name: "Test symlink points to data directory"
+      ansible.builtin.assert:
+        that:
+          - _symlink_stat.stat.exists
+          - _symlink_stat.stat.islnk
+          - _symlink_stat.stat.lnk_target == bitcoind_data_dir

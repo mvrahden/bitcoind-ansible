@@ -83,28 +83,37 @@ Bitcoin node are the following ones:
 | `bitcoind_version`        | `30.2`             | Knots example: `29.2.knots20251110`     |
 | `bitcoind_user`           | `bitcoin`          |                                         |
 | `bitcoind_group`          | `bitcoin`          |                                         |
-| `bitcoind_arch`           | `x86_64-linux-gnu` | Use `aarch64-linux-gnu` for Raspberry Pi|
+| `bitcoind_arch`           | _(auto-detected)_  | Override for cross-platform deploys     |
 
-> If you want to install Bitcoin into a Raspberry you need to change the architecture to `aarch64-linux-gnu`.
+> Architecture is auto-detected from `ansible_architecture`. Override with e.g. `aarch64-linux-gnu` for Raspberry Pi.
 
 To configure the Bitcoin node, you can use the following variables:
 
 > Use [rpcauth.py](https://raw.githubusercontent.com/bitcoin/bitcoin/master/share/rpcauth/rpcauth.py) to
 > generate `rpcauth` credentials.
 
-| Name                     | Value              | Note                                                 |
-| ------------------------ | ------------------ | ---------------------------------------------------- |
-| `bitcoind_data_dir`      | `/data/bitcoin`    |                                                      |
-| `bitcoind_network`       | `main`             | Valid values are: `main`, `regtest`, `signet`, `test` |
-| `bitcoind_rpc_auth`      |                    | Required. Generate with `rpcauth.py`                 |
-| `bitcoind_rpc_bind`      | `127.0.0.1`        | Address to expose the RPC server                     |
-| `bitcoind_rpc_port`      | `8332`             |                                                      |
-| `bitcoind_rpc_allow_ips` | `[127.0.0.1]`      | IP or range like `10.0.0.0/24`                       |
-| `bitcoind_bind`          | `127.0.0.1`        |                                                      |
-| `bitcoind_zmq_host`      | `127.0.0.1`        |                                                      |
-| `bitcoind_proxy`         | `127.0.0.1:9050`   | SOCKS5 proxy (e.g. Tor)                              |
-| `bitcoind_use_onion`     | `false`            | Restrict to onion network only                       |
-| `bitcoind_nodes`         | `[]`               | Peers to add via `addnode=`                          |
+| Name                          | Value           | Note                                                 |
+| ----------------------------- | --------------- | ---------------------------------------------------- |
+| `bitcoind_data_dir`           | `/data/bitcoin` |                                                      |
+| `bitcoind_network`            | `main`          | Valid values are: `main`, `regtest`, `signet`, `test` |
+| `bitcoind_server`             | `true`          | Enable JSON-RPC server                               |
+| `bitcoind_disablewallet`      | `false`         | Disable wallet functionality                         |
+| `bitcoind_txindex`            | `true`          | Maintain full transaction index                      |
+| `bitcoind_listen`             | `true`          | Listen for incoming peer connections                 |
+| `bitcoind_whitelist`          | `127.0.0.1`    | Whitelist address (empty to disable)                 |
+| `bitcoind_rpc_auth`           |                 | Required. Generate with `rpcauth.py`                 |
+| `bitcoind_rpc_bind`           | `127.0.0.1`    | Address to expose the RPC server                     |
+| `bitcoind_rpc_port`           | `8332`          |                                                      |
+| `bitcoind_rpc_allow_ips`      | `[127.0.0.1]`  | IP or range like `10.0.0.0/24`                       |
+| `bitcoind_bind`               | `127.0.0.1`    |                                                      |
+| `bitcoind_enable_zmq`         | `true`          | Enable ZMQ pub/sub endpoints                         |
+| `bitcoind_zmq_host`           | `127.0.0.1`    |                                                      |
+| `bitcoind_zmq_port_rawblock`  | `28332`         |                                                      |
+| `bitcoind_zmq_port_rawtx`     | `28333`         |                                                      |
+| `bitcoind_zmq_port_hashblock` | `28332`         |                                                      |
+| `bitcoind_proxy`              |                 | SOCKS5 proxy (e.g. `127.0.0.1:9050` for Tor)        |
+| `bitcoind_use_onion`          | `false`         | Restrict to onion network only                       |
+| `bitcoind_nodes`              | `[]`            | Peers to add via `addnode=`                          |
 
 ### GPG verification
 

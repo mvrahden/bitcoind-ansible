@@ -9,13 +9,24 @@ bitcoind_implementation: core
 # Bitcoin binary information
 # Core default: 30.2  |  Knots example: 29.2.knots20251110
 bitcoind_version: 30.2
-bitcoind_arch: x86_64-linux-gnu
+# Auto-detected from ansible_architecture when empty.
+# Override for cross-platform deploys (e.g. "aarch64-linux-gnu").
+bitcoind_arch: ""
 
-# Serve JOSN-RPC
+# Serve JSON-RPC
 bitcoind_server: true
 
 # Wallet
 bitcoind_disablewallet: false
+
+# Transaction index (increases disk usage significantly)
+bitcoind_txindex: true
+
+# Listen for incoming peer connections
+bitcoind_listen: true
+
+# Whitelist localhost connections
+bitcoind_whitelist: 127.0.0.1
 
 # Bitcoin GPG public keys per implementation.
 # Names must match the ones found in the respective guix.sigs repositories:
@@ -56,16 +67,19 @@ bitcoind_rpc_port: 8332
 bitcoind_rpc_allow_ips:
   - 127.0.0.1
 
-# This is the host where you want to expose the ZMQ TCP socket
-# to receive raw block and transaction updates.
+# ZMQ pub/sub endpoints for raw blocks and transactions.
+# Set to false to disable ZMQ entirely.
+bitcoind_enable_zmq: true
 bitcoind_zmq_host: 127.0.0.1
+bitcoind_zmq_port_rawblock: 28332
+bitcoind_zmq_port_rawtx: 28333
+bitcoind_zmq_port_hashblock: 28332
 
-bitcoind_proxy: 127.0.0.1:9050
+# SOCKS5 proxy (e.g. Tor). Empty string disables.
+bitcoind_proxy: ""
 
+# Peer nodes to add via addnode=
 bitcoind_nodes: []
-  # For clearnet, see: https://bitnodes.io/nodes/?q=Tor%20network
-  # - 82.101.236.91:8333
-  # For Tor, see: https://bitnodes.io/nodes/?q=Tor%20network
-  # - tsr2f2pjzvkjn32gt6dnfjzmgbbq6kjj62d3jgedwx4qr2ku3tb7pvqd.onion:8333
 
+# Restrict to onion network only (requires bitcoind_proxy pointing at Tor)
 bitcoind_use_onion: false
