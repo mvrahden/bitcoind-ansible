@@ -4,8 +4,8 @@
   become: true
   gather_facts: false
   vars:
-    bitcoind_version: 30.2
-    bitcoind_implementation: core
+    bitcoind_implementation: "{{ lookup('env', 'BITCOIND_IMPL') | default('core', true) }}"
+    bitcoind_version: "{{ lookup('env', 'BITCOIND_VERSION') | default('30.2', true) }}"
     # Core 30.x: bitcoin wrapper replaces test_bitcoin
     # Knots 29.x: still has test_bitcoin, no bitcoin wrapper
     _core_binaries:

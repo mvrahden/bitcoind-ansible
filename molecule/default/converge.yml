@@ -7,5 +7,7 @@
     bitcoind_network: regtest
     bitcoind_use_onion: true
     bitcoind_rpc_auth: "test:a]3a49e54de0048a4bae6de3f3e85c6$6f4c35e75cde9ee37694dcf40a932ea90c05e3a5efd16a6e0c9ae3e0abd1e9b2"
+    bitcoind_implementation: "{{ lookup('env', 'BITCOIND_IMPL') | default('core', true) }}"
+    bitcoind_version: "{{ lookup('env', 'BITCOIND_VERSION') | default('30.2', true) }}"
   roles:
     - mvrahden.bitcoind
