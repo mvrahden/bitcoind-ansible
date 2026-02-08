@@ -4,7 +4,7 @@
   become: true
   gather_facts: false
   vars:
-    bitcoind_version: 29.0
+    bitcoind_version: 30.2
 
   tasks:
     - name: "Retrieve information from /usr/local/bin/*"
@@ -12,13 +12,13 @@
         path: "/usr/local/bin/{{ item }}"
       register: bitcoind_bins
       with_items:
+        - bitcoin
         - bitcoin-cli
         - bitcoin-qt
         - bitcoin-tx
         - bitcoin-util
         - bitcoin-wallet
         - bitcoind
-        - test_bitcoin
 
     - name: "Test that binaries were copied correctly for Bitcoin Core v{{ bitcoind_version }}"
       ansible.builtin.assert:

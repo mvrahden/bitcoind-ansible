@@ -177,6 +177,15 @@
         mode: "0755"
 
   always:
+    # gpg-agent creates socket files (S.gpg-agent*) that vanish asynchronously
+    # on shutdown, causing rmtree ENOENT races. Kill it first.
+    - name: "Bitcoind | Stop gpg-agent for staging cleanup"
+      ansible.builtin.command:
+        cmd: gpgconf --homedir {{ _bitcoind_gpg_home }} --kill gpg-agent
+      failed_when: false
+      changed_when: false
+      when: _bitcoind_gpg_home is defined
+
     # Fix #6: Clean up all staging artifacts
     - name: "Bitcoind | Remove staging directory"
       ansible.builtin.file:
