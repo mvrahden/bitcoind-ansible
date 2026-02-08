@@ -19,6 +19,8 @@ provisioner:
   name: ansible
   env:
     ANSIBLE_VERBOSITY: 3
+    BITCOIND_IMPL: ${BITCOIND_IMPL:-core}
+    BITCOIND_VERSION: ${BITCOIND_VERSION:-""}
 
 verifier:
   name: ansible

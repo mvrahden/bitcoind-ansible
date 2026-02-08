@@ -1,5 +1,5 @@
 # This file is executed in a loop based on the number of elements
-# found in the `bitcoind_pgp_builders_pub_key` structure. Be sure to move
+# found in the `_bitcoind_pgp_builders` structure. Be sure to move
 # away from this file common tasks like setting facts, install dependencies, etc
 #
 # Fix #11: Uses gpg CLI with a dedicated --homedir instead of the deprecated
@@ -27,7 +27,7 @@
 
 - name: "Bitcoind | Download all.SHA256SUMS.asc for user '{{ gpg_user }}' and Bitcoin v{{ bitcoind_version }}"
   ansible.builtin.get_url:
-    url: https://raw.githubusercontent.com/bitcoin-core/guix.sigs/main/{{ bitcoind_version }}/{{ gpg_user }}/all.SHA256SUMS.asc
+    url: "{{ _bitcoind_guix_sigs_base_url }}/{{ bitcoind_version }}/{{ gpg_user }}/all.SHA256SUMS.asc"
     dest: "{{ _bitcoind_staging.path }}/attestations/{{ gpg_user }}/all.SHA256SUMS.asc"
     http_agent: yourbtc-ansible
 

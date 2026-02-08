@@ -3,7 +3,11 @@
 bitcoind_user: bitcoin
 bitcoind_group: bitcoin
 
+# Implementation: "core" (Bitcoin Core) or "knots" (Bitcoin Knots)
+bitcoind_implementation: core
+
 # Bitcoin binary information
+# Core default: 30.2  |  Knots example: 29.2.knots20251110
 bitcoind_version: 30.2
 bitcoind_arch: x86_64-linux-gnu
 
@@ -13,14 +17,21 @@ bitcoind_server: true
 # Wallet
 bitcoind_disablewallet: false
 
-# Bitcoin GPG public keys. Name must match the ones found in
-# this link https://github.com/bitcoin-core/guix.sigs. The ID of each
-# user can be found here https://github.com/bitcoin/bitcoin/blob/23.x/contrib/builder-keys/keys.txt
-bitcoind_pgp_builders_pub_key:
+# Bitcoin GPG public keys per implementation.
+# Names must match the ones found in the respective guix.sigs repositories:
+#   Core: https://github.com/bitcoin-core/guix.sigs
+#   Knots: https://github.com/bitcoinknots/guix.sigs
+bitcoind_pgp_builders_pub_key_core:
   - id: 71A3B16735405025D447E8F274810B012346C9A6
     name: laanwj
   - id: E777299FC265DD04793070EB944D35F9AC3DB76A
     name: fanquake
+
+bitcoind_pgp_builders_pub_key_knots:
+  - id: 1A3E761F19D2CC7785C5502EA291A2C45D0C504A
+    name: luke-jr
+  - id: 1D70CBE4B42239445617D33DD316C8140185B647
+    name: shiny
 
 # Data directory mount configuration.
 # Set bitcoind_data_mount_device to have the role manage the fstab entry.
