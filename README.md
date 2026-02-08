@@ -10,8 +10,8 @@ it uses sane defaults and some hardening measures for the Systemd service.
 - Sets up user, if not single user system
 - Downloads bitcoin binaries and verifies GPG signatures
 - Installs all shipped binaries to `/usr/local/bin` (i.e. `bitcoin-cli`, `bitcoind`, ...)
-- Sets up a systemd service with configuration at `/etc/bitcoind/<network>/bitcoind.conf`
-- Links `/home/<user>/.bitcoin` to `/etc/bitcoind/<network>`
+- Sets up a systemd service with configuration at `<data_dir>/bitcoind.conf`
+- Links `/home/<user>/.bitcoin` to `<data_dir>`
 
 ## Requirements
 
@@ -92,20 +92,19 @@ To configure the Bitcoin node, you can use the following variables:
 > Use [rpcauth.py](https://raw.githubusercontent.com/bitcoin/bitcoin/master/share/rpcauth/rpcauth.py) to
 > generate `rpcauth` credentials.
 
-| Name                     | Value                      | Note                                                 |
-| ------------------------ | -------------------------- | ---------------------------------------------------- |
-| `bitcoind_data_dir`      | `/data/bitcoin`            |                                                      |
-| `bitcoind_network`       | `main`                     | Valid values are: `regtest`, `signet` and `test`     |
-| `bitcoind_rpc_auth`      | `bitcoin:2e00...`          | Prevent your password from being stored as cleartext |
-| `bitcoind_rpc_user`      | `bitcoin`                  | If possible use `btc_rpc_auth` instead               |
-| `bitcoind_rpc_password`  | `bitcoin`                  | If possible use `btc_rpc_auth` instead               |
-| `bitcoind_zmq_host`      | `127.0.0.1`                |                                                      |
-| `bitcoind_bind`          | `127.0.0.1`                |                                                      |
-| `bitcoind_rpc_bind`      | `127.0.0.1`                | This is where to expose the RPC server               |
-| `bitcoind_rpc_allow_ips` | `[127.0.0.1]`              | This can be an IP or a range like `10.0.0.0/24`      |
-| `bitcoind_use_onion`     | `False`                    | This enables onion support                           |
-| `bitcoind_onion_proxy`   | `127.0.0.1:9050`           |                                                      |
-| `bitcoind_onion_nodes`   | `['tsr2f2....onion:8333']` |                                                      |
+| Name                     | Value              | Note                                                 |
+| ------------------------ | ------------------ | ---------------------------------------------------- |
+| `bitcoind_data_dir`      | `/data/bitcoin`    |                                                      |
+| `bitcoind_network`       | `main`             | Valid values are: `main`, `regtest`, `signet`, `test` |
+| `bitcoind_rpc_auth`      |                    | Required. Generate with `rpcauth.py`                 |
+| `bitcoind_rpc_bind`      | `127.0.0.1`        | Address to expose the RPC server                     |
+| `bitcoind_rpc_port`      | `8332`             |                                                      |
+| `bitcoind_rpc_allow_ips` | `[127.0.0.1]`      | IP or range like `10.0.0.0/24`                       |
+| `bitcoind_bind`          | `127.0.0.1`        |                                                      |
+| `bitcoind_zmq_host`      | `127.0.0.1`        |                                                      |
+| `bitcoind_proxy`         | `127.0.0.1:9050`   | SOCKS5 proxy (e.g. Tor)                              |
+| `bitcoind_use_onion`     | `false`            | Restrict to onion network only                       |
+| `bitcoind_nodes`         | `[]`               | Peers to add via `addnode=`                          |
 
 ### GPG verification
 

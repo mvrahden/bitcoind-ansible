@@ -51,7 +51,9 @@
   with_items:
     - gpg
     - dirmngr
-  when: _bitcoind_pgp_builders | length > 0
+  when:
+    - _bitcoind_pgp_builders | length > 0
+    - not (bitcoind_skip_gpg_verification | default(false) | bool)
 
 - name: "Bitcoind | Ensure group '{{ bitcoind_group }}' exists"
   ansible.builtin.group:
@@ -146,7 +148,9 @@
         gpg_user: "{{ item.name }}"
         gpg_id: "{{ item.id }}"
       with_items: "{{ _bitcoind_pgp_builders }}"
-      when: _bitcoind_pgp_builders | length > 0
+      when:
+        - _bitcoind_pgp_builders | length > 0
+        - not (bitcoind_skip_gpg_verification | default(false) | bool)
 
     # Fix #1: Extract checksum from the GPG-verified SHA256SUMS (not a fresh HTTP fetch)
     - name: "Bitcoind | Extract verified checksum for bitcoin-{{ bitcoind_version }}-{{ bitcoind_arch }}.tar.gz"
@@ -248,6 +252,7 @@
     daemon_reload: true
     enabled: true
     state: started
+  register: _bitcoind_service_start
 
 - name: "Bitcoind | Ensure version cookie file set"
   ansible.builtin.template:
@@ -256,3 +261,4 @@
     owner: "{{ bitcoind_user }}"
     group: "{{ bitcoind_group }}"
     mode: "0644"
+  when: _bitcoind_service_start is not failed
