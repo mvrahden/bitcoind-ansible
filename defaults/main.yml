@@ -28,7 +28,7 @@ bitcoind_pgp_builders_pub_key_core:
     name: fanquake
 
 bitcoind_pgp_builders_pub_key_knots:
-  - id: 93CB4961F69A65082D4410802CBA8253089655C3
+  - id: 1A3E761F19D2CC7785C5502EA291A2C45D0C504A
     name: luke-jr
   - id: 1D70CBE4B42239445617D33DD316C8140185B647
     name: shiny
