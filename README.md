@@ -10,8 +10,8 @@ it uses sane defaults and some hardening measures for the Systemd service.
 - Sets up user, if not single user system
 - Downloads bitcoin binaries and verifies GPG signatures
 - Installs all shipped binaries to `/usr/local/bin` (i.e. `bitcoin-cli`, `bitcoind`, ...)
-- Sets up a systemd service with configuration at `/etc/bitcoind/<network>/bitcoind.conf`
-- Links `/home/<user>/.bitcoin` to `/etc/bitcoind/<network>`
+- Sets up a systemd service with configuration at `<data_dir>/bitcoind.conf`
+- Links `/home/<user>/.bitcoin` to `<data_dir>`
 
 ## Requirements
 
@@ -83,29 +83,68 @@ Bitcoin node are the following ones:
 | `bitcoind_version`        | `30.2`             | Knots example: `29.2.knots20251110`     |
 | `bitcoind_user`           | `bitcoin`          |                                         |
 | `bitcoind_group`          | `bitcoin`          |                                         |
-| `bitcoind_arch`           | `x86_64-linux-gnu` | Use `aarch64-linux-gnu` for Raspberry Pi|
+| `bitcoind_arch`           | _(auto-detected)_  | Override for cross-platform deploys     |
 
-> If you want to install Bitcoin into a Raspberry you need to change the architecture to `aarch64-linux-gnu`.
+> Architecture is auto-detected from `ansible_architecture`. Override with e.g. `aarch64-linux-gnu` for Raspberry Pi.
 
 To configure the Bitcoin node, you can use the following variables:
 
 > Use [rpcauth.py](https://raw.githubusercontent.com/bitcoin/bitcoin/master/share/rpcauth/rpcauth.py) to
 > generate `rpcauth` credentials.
 
-| Name                     | Value                      | Note                                                 |
-| ------------------------ | -------------------------- | ---------------------------------------------------- |
-| `bitcoind_data_dir`      | `/data/bitcoin`            |                                                      |
-| `bitcoind_network`       | `main`                     | Valid values are: `regtest`, `signet` and `test`     |
-| `bitcoind_rpc_auth`      | `bitcoin:2e00...`          | Prevent your password from being stored as cleartext |
-| `bitcoind_rpc_user`      | `bitcoin`                  | If possible use `btc_rpc_auth` instead               |
-| `bitcoind_rpc_password`  | `bitcoin`                  | If possible use `btc_rpc_auth` instead               |
-| `bitcoind_zmq_host`      | `127.0.0.1`                |                                                      |
-| `bitcoind_bind`          | `127.0.0.1`                |                                                      |
-| `bitcoind_rpc_bind`      | `127.0.0.1`                | This is where to expose the RPC server               |
-| `bitcoind_rpc_allow_ips` | `[127.0.0.1]`              | This can be an IP or a range like `10.0.0.0/24`      |
-| `bitcoind_use_onion`     | `False`                    | This enables onion support                           |
-| `bitcoind_onion_proxy`   | `127.0.0.1:9050`           |                                                      |
-| `bitcoind_onion_nodes`   | `['tsr2f2....onion:8333']` |                                                      |
+| Name                          | Value           | Note                                                  |
+| ----------------------------- | --------------- | ----------------------------------------------------- |
+| `bitcoind_data_dir`           | `/data/bitcoin` |                                                       |
+| `bitcoind_network`            | `main`          | Valid values are: `main`, `regtest`, `signet`, `test` |
+| `bitcoind_server`             | `true`          | Enable JSON-RPC server                                |
+| `bitcoind_disablewallet`      | `true`          | Disable wallet (enable only if needed)                |
+| `bitcoind_txindex`            | `true`          | Maintain full transaction index                       |
+| `bitcoind_listen`             | `true`          | Listen for incoming peer connections                  |
+| `bitcoind_whitelist`          | `127.0.0.1`     | Whitelist address (empty to disable)                  |
+| `bitcoind_rpc_auth`           |                 | Required. Generate with `rpcauth.py`                  |
+| `bitcoind_rpc_bind`           | `127.0.0.1`     | Address to expose the RPC server                      |
+| `bitcoind_rpc_port`           | `8332`          |                                                       |
+| `bitcoind_rpc_allow_ips`      | `[127.0.0.1]`   | IP or range like `10.0.0.0/24`                        |
+| `bitcoind_bind`               | `127.0.0.1`     |                                                       |
+| `bitcoind_enable_zmq`         | `false`         | Enable ZMQ pub/sub endpoints                          |
+| `bitcoind_zmq_host`           | `127.0.0.1`     |                                                       |
+| `bitcoind_zmq_port_rawblock`  | `28332`         |                                                       |
+| `bitcoind_zmq_port_rawtx`     | `28333`         |                                                       |
+| `bitcoind_zmq_port_hashblock` | `28332`         |                                                       |
+| `bitcoind_proxy`              |                 | SOCKS5 proxy (e.g. `127.0.0.1:9050` for Tor)          |
+| `bitcoind_use_onion`          | `false`         | Restrict to onion network only                        |
+| `bitcoind_nodes`              | `[]`            | Peers to add via `addnode=`                           |
+
+### Use-case examples
+
+The defaults provide a minimal-surface full node. Enable additional features as needed:
+
+**Lightning node (LND / CLN)**
+
+```yaml
+bitcoind_enable_zmq: true
+bitcoind_txindex: false  # not needed for Lightning
+```
+
+**Block explorer / Electrum server (Electrs / Fulcrum / mempool.space)**
+
+```yaml
+bitcoind_enable_zmq: true  # required for real-time block notifications
+bitcoind_txindex: true     # required for address lookups
+```
+
+**Tor-only (requires a running Tor daemon)**
+
+```yaml
+bitcoind_proxy: "127.0.0.1:9050"
+bitcoind_use_onion: true
+```
+
+**On-node wallet**
+
+```yaml
+bitcoind_disablewallet: false
+```
 
 ### GPG verification
 

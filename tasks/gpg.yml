@@ -17,6 +17,9 @@
     cmd: gpg --homedir {{ _bitcoind_gpg_home }} --recv-keys {{ gpg_id }}
   register: _gpg_key_import
   changed_when: "'imported' in _gpg_key_import.stderr"
+  retries: 3
+  delay: 5
+  until: _gpg_key_import.rc == 0
   when: _gpg_key_check.rc != 0
 
 - name: "Bitcoind | Ensure attestation directory for '{{ gpg_user }}' exists"
@@ -29,7 +32,7 @@
   ansible.builtin.get_url:
     url: "{{ _bitcoind_guix_sigs_base_url }}/{{ bitcoind_version }}/{{ gpg_user }}/all.SHA256SUMS.asc"
     dest: "{{ _bitcoind_staging.path }}/attestations/{{ gpg_user }}/all.SHA256SUMS.asc"
-    http_agent: yourbtc-ansible
+    http_agent: bitcoind-ansible
 
 - name: "Bitcoind | Verify GPG signature for '{{ gpg_user }}' (Bitcoin v{{ bitcoind_version }})"
   ansible.builtin.command:

@@ -47,10 +47,6 @@ Group={{ bitcoind_group }}
 RuntimeDirectory=bitcoind/{{ bitcoind_network }}
 RuntimeDirectoryMode=0710
 
-# /var/lib/bitcoind
-StateDirectory=bitcoind
-StateDirectoryMode=0710
-
 # Hardening measures
 ####################
 
@@ -93,6 +89,9 @@ ProtectClock=true
 
 # Drop all capabilities (bitcoind needs none as non-root)
 CapabilityBoundingSet=
+
+# Allow enough file descriptors for peers + LevelDB
+LimitNOFILE=32768
 
 [Install]
 WantedBy=multi-user.target

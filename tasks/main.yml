@@ -3,6 +3,13 @@
   ansible.builtin.set_fact:
     _bitcoind_change_version: false # default
 
+- name: Bitcoind | Auto-detect architecture
+  ansible.builtin.set_fact:
+    bitcoind_arch: >-
+      {{ 'aarch64-linux-gnu' if ansible_architecture == 'aarch64'
+         else 'x86_64-linux-gnu' }}
+  when: bitcoind_arch | length == 0
+
 - name: Bitcoind | Validate implementation is supported
   ansible.builtin.fail:
     msg: >-
@@ -51,7 +58,9 @@
   with_items:
     - gpg
     - dirmngr
-  when: _bitcoind_pgp_builders | length > 0
+  when:
+    - _bitcoind_pgp_builders | length > 0
+    - not (bitcoind_skip_gpg_verification | default(false) | bool)
 
 - name: "Bitcoind | Ensure group '{{ bitcoind_group }}' exists"
   ansible.builtin.group:
@@ -92,18 +101,18 @@
     mode: "0750"
 
 - name: "Bitcoind | Load version cookie file"
-  slurp:
+  ansible.builtin.slurp:
     src: "{{ bitcoind_data_dir }}/.bitcoind.version"
   register: _bitcoind_version_cookie_file
   ignore_errors: true
 
 - name: "Bitcoind | Determine version change from version cookie vs. configured version"
-  set_fact:
+  ansible.builtin.set_fact:
     _bitcoind_change_version: "{{ (_bitcoind_version_cookie_file['content'] | b64decode | trim | split('\n') | last) != (bitcoind_version | string) }}"
   when: "not _bitcoind_version_cookie_file.failed"
 
 - name: "Bitcoind | Debug detected version change from cookie"
-  debug:
+  ansible.builtin.debug:
     msg: "{{ _bitcoind_change_version }}"
 
 # ── Download, verify, and install Bitcoin (only on first install or version change) ──
@@ -138,7 +147,7 @@
       ansible.builtin.get_url:
         url: "{{ _bitcoind_base_url }}/SHA256SUMS"
         dest: "{{ _bitcoind_staging.path }}/SHA256SUMS"
-        http_agent: yourbtc-ansible
+        http_agent: bitcoind-ansible
 
     - name: "Bitcoind | Verify signature with given keys"
       ansible.builtin.include_tasks: gpg.yml
@@ -146,7 +155,9 @@
         gpg_user: "{{ item.name }}"
         gpg_id: "{{ item.id }}"
       with_items: "{{ _bitcoind_pgp_builders }}"
-      when: _bitcoind_pgp_builders | length > 0
+      when:
+        - _bitcoind_pgp_builders | length > 0
+        - not (bitcoind_skip_gpg_verification | default(false) | bool)
 
     # Fix #1: Extract checksum from the GPG-verified SHA256SUMS (not a fresh HTTP fetch)
     - name: "Bitcoind | Extract verified checksum for bitcoin-{{ bitcoind_version }}-{{ bitcoind_arch }}.tar.gz"
@@ -163,7 +174,7 @@
         url: "{{ _bitcoind_base_url }}/bitcoin-{{ bitcoind_version }}-{{ bitcoind_arch }}.tar.gz"
         dest: "{{ _bitcoind_staging.path }}/bitcoin-{{ bitcoind_version }}-{{ bitcoind_arch }}.tar.gz"
         checksum: "sha256:{{ _bitcoind_verified_checksum.stdout }}"
-        http_agent: yourbtc-ansible
+        http_agent: bitcoind-ansible
 
     - name: "Bitcoind | Ensure extraction directory exists"
       ansible.builtin.file:
@@ -248,6 +259,7 @@
     daemon_reload: true
     enabled: true
     state: started
+  register: _bitcoind_service_start
 
 - name: "Bitcoind | Ensure version cookie file set"
   ansible.builtin.template:
@@ -256,3 +268,4 @@
     owner: "{{ bitcoind_user }}"
     group: "{{ bitcoind_group }}"
     mode: "0644"
+  when: _bitcoind_service_start is not failed
