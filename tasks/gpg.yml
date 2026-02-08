@@ -1,25 +1,40 @@
 # This file is executed in a loop based on the number of elements
 # found in the `bitcoind_pgp_builders_pub_key` structure. Be sure to move
 # away from this file common tasks like setting facts, install dependencies, etc
+#
+# Fix #11: Uses gpg CLI with a dedicated --homedir instead of the deprecated
+# ansible.builtin.apt_key module. Keys are NOT added to the APT trusted keyring.
 ---
-- name: "Bitcoind | Ensure Bitcoin PGP public key for user '{{ gpg_user }}' is added"
-  ansible.builtin.apt_key:
-    id: "{{ gpg_id }}"
-    keyserver: hkps://keys.openpgp.org
-    state: present
-    keyring: "{{ gpg_home_dir }}/bitcoin-v{{ bitcoind_version }}-{{ gpg_user }}.gpg"
+- name: "Bitcoind | Check if GPG key for '{{ gpg_user }}' ({{ gpg_id }}) is already imported"
+  ansible.builtin.command:
+    cmd: gpg --homedir {{ _bitcoind_gpg_home }} --list-keys {{ gpg_id }}
+  register: _gpg_key_check
+  failed_when: false
+  changed_when: false
 
-- name: "Bitcoind | Ensure '/tmp/gpg-{{ gpg_user }}' directory exists"
+- name: "Bitcoind | Import GPG key {{ gpg_id }} for '{{ gpg_user }}'"
+  ansible.builtin.command:
+    cmd: gpg --homedir {{ _bitcoind_gpg_home }} --recv-keys {{ gpg_id }}
+  register: _gpg_key_import
+  changed_when: "'imported' in _gpg_key_import.stderr"
+  when: _gpg_key_check.rc != 0
+
+- name: "Bitcoind | Ensure attestation directory for '{{ gpg_user }}' exists"
   ansible.builtin.file:
-    path: /tmp/gpg-{{ gpg_user }}
+    path: "{{ _bitcoind_staging.path }}/attestations/{{ gpg_user }}"
     state: directory
+    mode: "0700"
 
-- name: "Bitcoind | Download all.SHA256SUMS.asc for user '{{ gpg_user }}' and Bitcoin v{{ bitcoind_version }} into '/tmp/gpg-{{ gpg_user }}/all.SHA256SUMS.asc'"
+- name: "Bitcoind | Download all.SHA256SUMS.asc for user '{{ gpg_user }}' and Bitcoin v{{ bitcoind_version }}"
   ansible.builtin.get_url:
     url: https://raw.githubusercontent.com/bitcoin-core/guix.sigs/main/{{ bitcoind_version }}/{{ gpg_user }}/all.SHA256SUMS.asc
-    dest: /tmp/gpg-{{ gpg_user }}/all.SHA256SUMS.asc
+    dest: "{{ _bitcoind_staging.path }}/attestations/{{ gpg_user }}/all.SHA256SUMS.asc"
     http_agent: yourbtc-ansible
 
-- name: "Bitcoind | Verify GPG signature using '/tmp/gpg-{{ gpg_user }}/all.SHA256SUMS.asc' for file '/tmp/SHA256SUMS' (Bitcoin v{{ bitcoind_version }})"
-  shell: gpg --keyring {{ gpg_home_dir }}/bitcoin-v{{ bitcoind_version }}-{{ gpg_user }}.gpg --no-default-keyring --verify /tmp/gpg-{{ gpg_user }}/all.SHA256SUMS.asc /tmp/SHA256SUMS
+- name: "Bitcoind | Verify GPG signature for '{{ gpg_user }}' (Bitcoin v{{ bitcoind_version }})"
+  ansible.builtin.command:
+    cmd: >-
+      gpg --homedir {{ _bitcoind_gpg_home }}
+      --verify {{ _bitcoind_staging.path }}/attestations/{{ gpg_user }}/all.SHA256SUMS.asc
+      {{ _bitcoind_staging.path }}/SHA256SUMS
   changed_when: false

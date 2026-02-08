@@ -36,14 +36,10 @@ bitcoind_data_dir: /data/bitcoin
 bitcoind_network: main
 bitcoind_bind: 127.0.0.1
 
-# Bitcoin RPC server auth data. These default values are not
-# recommended, and you should use your own ones. You are going
-# to use these values always to be able to read/write data
-# from your node, so be sure to maintain it secret.
-bitcoind_rpc_auth: bitcoin:2e00f3e1e6b96957fe9ea0ab3916eb16$c8f9f556c48dd43ebbe948ab969d4eafd01601e4881a470a52777d84763b8e95
-# clear-text alternatives:
-# bitcoind_rpc_user: bitcoin
-# bitcoind_rpc_password: bitcoin
+# Bitcoin RPC server auth data (required — no default for security).
+# Generate with: python3 share/rpcauth/rpcauth.py <username>
+# The output line "rpcauth=..." goes here (without the "rpcauth=" prefix).
+bitcoind_rpc_auth: ""
 bitcoind_rpc_bind: 127.0.0.1
 bitcoind_rpc_port: 8332
 bitcoind_rpc_allow_ips:

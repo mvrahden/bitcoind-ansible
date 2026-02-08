@@ -3,6 +3,25 @@
   ansible.builtin.set_fact:
     _bitcoind_change_version: false # default
 
+# Fix #2: GPG verification must be explicitly configured or explicitly skipped
+- name: Bitcoind | Validate GPG verification is configured
+  ansible.builtin.fail:
+    msg: >-
+      bitcoind_pgp_builders_pub_key must contain at least one GPG key for binary
+      signature verification. Set bitcoind_skip_gpg_verification=true to bypass
+      (not recommended).
+  when:
+    - bitcoind_pgp_builders_pub_key is not defined or bitcoind_pgp_builders_pub_key | length == 0
+    - not (bitcoind_skip_gpg_verification | default(false) | bool)
+
+# Fix #3: RPC credential must be provided — no hardcoded default
+- name: Bitcoind | Validate RPC auth is configured
+  ansible.builtin.fail:
+    msg: >-
+      bitcoind_rpc_auth must be set. Generate with:
+      python3 share/rpcauth/rpcauth.py <username>
+  when: bitcoind_rpc_auth | default('') | length == 0
+
 - name: Bitcoind | Ensure dependencies are installed
   ansible.builtin.apt:
     update_cache: true
@@ -11,25 +30,21 @@
   with_items:
     - gpg
     - dirmngr
-  # We only need to install these dependencies if we
-  # have the GPG keys to verify the SHA256SUMS file
   when: bitcoind_pgp_builders_pub_key is defined and bitcoind_pgp_builders_pub_key | length > 0
-
-- name: Bitcoind | Ensure GPG base keyring directory is set as a fact for this OS
-  ansible.builtin.set_fact:
-    gpg_home_dir: /etc/apt/trusted.gpg.d
 
 - name: "Bitcoind | Ensure group '{{ bitcoind_group }}' exists"
   ansible.builtin.group:
     name: "{{ bitcoind_group }}"
     state: present
 
+# Fix #7: Service account gets nologin shell
 - name: "Bitcoind | Ensure user '{{ bitcoind_user }}' with a primary group of '{{ bitcoind_group }}' exists"
   ansible.builtin.user:
     name: "{{ bitcoind_user }}"
     group: "{{ bitcoind_group }}"
     state: present
     password: "*"
+    shell: /usr/sbin/nologin
   when: "ansible_user is not defined or bitcoind_user != ansible_user"
 
 - name: "Bitcoind | Ensure data device is mounted ('{{ bitcoind_data_mount_path }}')"
@@ -46,13 +61,14 @@
     path: "{{ bitcoind_data_dir }}"
     state: directory
 
+# Fix #8: Data directory 0750 (not world-readable — may contain wallet files)
 - name: "Bitcoind | Ensure Bitcoin data directory uses the correct permissions ('{{ bitcoind_data_dir }}')"
   ansible.builtin.file:
     path: "{{ bitcoind_data_dir }}"
     state: directory
     owner: "{{ bitcoind_user }}"
     group: "{{ bitcoind_group }}"
-    mode: "0755"
+    mode: "0750"
 
 - name: "Bitcoind | Load version cookie file"
   slurp:
@@ -69,58 +85,104 @@
   debug:
     msg: "{{ _bitcoind_change_version }}"
 
-- name: "Bitcoind | Download SHA256SUMS for Bitcoin v{{ bitcoind_version }} into '/tmp/SHA256SUMS'"
-  ansible.builtin.get_url:
-    url: https://bitcoincore.org/bin/bitcoin-core-{{ bitcoind_version }}/SHA256SUMS
-    dest: /tmp/SHA256SUMS
-    http_agent: yourbtc-ansible
+# ── Download, verify, and install Bitcoin Core (only on first install or version change) ──
+- name: Bitcoind | Download, verify, and install Bitcoin Core
+  when: _bitcoind_version_cookie_file.failed or _bitcoind_change_version | bool
+  block:
+    # Fix #5: Secure staging directory (unpredictable path, 0700, root-owned)
+    - name: Bitcoind | Create secure staging directory
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: bitcoind_
+      register: _bitcoind_staging
 
-- name: "Bitcoind | Verify signature with given keys"
-  ansible.builtin.include_tasks: gpg.yml
-  vars:
-    gpg_user: "{{ item.name }}"
-    gpg_id: "{{ item.id }}"
-  with_items: "{{ bitcoind_pgp_builders_pub_key }}"
-  when: bitcoind_pgp_builders_pub_key is defined and bitcoind_pgp_builders_pub_key | length > 0
+    # Fix #11: Dedicated GPG homedir (not the APT trusted keyring)
+    - name: Bitcoind | Set GPG home directory fact
+      ansible.builtin.set_fact:
+        _bitcoind_gpg_home: "{{ _bitcoind_staging.path }}/gpg"
 
-- name: "Bitcoind | Download Bitcoin Core v{{ bitcoind_version }} into '/tmp/bitcoin-core-{{ bitcoind_version }}-{{ bitcoind_arch }}.tar.gz'"
-  ansible.builtin.get_url:
-    url: https://bitcoincore.org/bin/bitcoin-core-{{ bitcoind_version }}/bitcoin-{{ bitcoind_version }}-{{ bitcoind_arch }}.tar.gz
-    dest: /tmp/bitcoin-core-{{ bitcoind_version }}-{{ bitcoind_arch }}.tar.gz
-    checksum: sha256:https://bitcoincore.org/bin/bitcoin-core-{{ bitcoind_version }}/SHA256SUMS
-    http_agent: yourbtc-ansible
+    - name: Bitcoind | Ensure GPG home directory exists
+      ansible.builtin.file:
+        path: "{{ _bitcoind_gpg_home }}"
+        state: directory
+        mode: "0700"
 
-- name: "Bitcoind | Ensure '/tmp/bitcoin-core-{{ bitcoind_version }}' directory exists"
-  ansible.builtin.file:
-    path: /tmp/bitcoin-core-{{ bitcoind_version }}
-    state: directory
+    - name: Bitcoind | Configure GPG keyserver
+      ansible.builtin.copy:
+        dest: "{{ _bitcoind_gpg_home }}/dirmngr.conf"
+        content: "keyserver hkps://keys.openpgp.org\n"
+        mode: "0600"
 
-- name: "Bitcoind | Unpack 'bitcoin-core-{{ bitcoind_version }}-{{ bitcoind_arch }}.tar.gz' into '/tmp/bitcoin-core-{{ bitcoind_version }}'"
-  ansible.builtin.unarchive:
-    src: /tmp/bitcoin-core-{{ bitcoind_version }}-{{ bitcoind_arch }}.tar.gz
-    dest: /tmp/bitcoin-core-{{ bitcoind_version }}
-    remote_src: true
-    extra_opts:
-      - --strip-components=1
+    - name: "Bitcoind | Download SHA256SUMS for Bitcoin v{{ bitcoind_version }}"
+      ansible.builtin.get_url:
+        url: https://bitcoincore.org/bin/bitcoin-core-{{ bitcoind_version }}/SHA256SUMS
+        dest: "{{ _bitcoind_staging.path }}/SHA256SUMS"
+        http_agent: yourbtc-ansible
 
-- name: "Bitcoind | Ensure 'bitcoind-{{ bitcoind_network }}.service' systemd unit is stopped"
-  ansible.builtin.systemd:
-    name: bitcoind-{{ bitcoind_network }}.service
-    state: stopped
-  register: _bitcoind_systemd_stop
-  when: _bitcoind_change_version
-  failed_when:
-    - _bitcoind_systemd_stop.failed
-    - "'Could not find the requested service' not in _bitcoind_systemd_stop.msg"
+    - name: "Bitcoind | Verify signature with given keys"
+      ansible.builtin.include_tasks: gpg.yml
+      vars:
+        gpg_user: "{{ item.name }}"
+        gpg_id: "{{ item.id }}"
+      with_items: "{{ bitcoind_pgp_builders_pub_key }}"
+      when: bitcoind_pgp_builders_pub_key is defined and bitcoind_pgp_builders_pub_key | length > 0
 
-- name: "Bitcoind | Install binaries into '/usr/local/bin/*'"
-  ansible.builtin.copy:
-    src: /tmp/bitcoin-core-{{ bitcoind_version }}/bin/
-    dest: /usr/local/bin/
-    remote_src: true
-    owner: root
-    group: root
-    mode: "0755"
+    # Fix #1: Extract checksum from the GPG-verified SHA256SUMS (not a fresh HTTP fetch)
+    - name: "Bitcoind | Extract verified checksum for bitcoin-{{ bitcoind_version }}-{{ bitcoind_arch }}.tar.gz"
+      ansible.builtin.shell:
+        cmd: >-
+          awk '/bitcoin-{{ bitcoind_version }}-{{ bitcoind_arch }}\.tar\.gz/{print $1; exit}'
+          {{ _bitcoind_staging.path }}/SHA256SUMS
+      register: _bitcoind_verified_checksum
+      changed_when: false
+      failed_when: _bitcoind_verified_checksum.stdout | length != 64
+
+    - name: "Bitcoind | Download Bitcoin Core v{{ bitcoind_version }}"
+      ansible.builtin.get_url:
+        url: https://bitcoincore.org/bin/bitcoin-core-{{ bitcoind_version }}/bitcoin-{{ bitcoind_version }}-{{ bitcoind_arch }}.tar.gz
+        dest: "{{ _bitcoind_staging.path }}/bitcoin-core-{{ bitcoind_version }}-{{ bitcoind_arch }}.tar.gz"
+        checksum: "sha256:{{ _bitcoind_verified_checksum.stdout }}"
+        http_agent: yourbtc-ansible
+
+    - name: "Bitcoind | Ensure extraction directory exists"
+      ansible.builtin.file:
+        path: "{{ _bitcoind_staging.path }}/bitcoin-core-{{ bitcoind_version }}"
+        state: directory
+
+    - name: "Bitcoind | Unpack Bitcoin Core v{{ bitcoind_version }}"
+      ansible.builtin.unarchive:
+        src: "{{ _bitcoind_staging.path }}/bitcoin-core-{{ bitcoind_version }}-{{ bitcoind_arch }}.tar.gz"
+        dest: "{{ _bitcoind_staging.path }}/bitcoin-core-{{ bitcoind_version }}"
+        remote_src: true
+        extra_opts:
+          - --strip-components=1
+
+    - name: "Bitcoind | Ensure 'bitcoind-{{ bitcoind_network }}.service' systemd unit is stopped"
+      ansible.builtin.systemd:
+        name: bitcoind-{{ bitcoind_network }}.service
+        state: stopped
+      register: _bitcoind_systemd_stop
+      when: _bitcoind_change_version
+      failed_when:
+        - _bitcoind_systemd_stop.failed
+        - "'Could not find the requested service' not in _bitcoind_systemd_stop.msg"
+
+    - name: "Bitcoind | Install binaries into '/usr/local/bin/*'"
+      ansible.builtin.copy:
+        src: "{{ _bitcoind_staging.path }}/bitcoin-core-{{ bitcoind_version }}/bin/"
+        dest: /usr/local/bin/
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0755"
+
+  always:
+    # Fix #6: Clean up all staging artifacts
+    - name: "Bitcoind | Remove staging directory"
+      ansible.builtin.file:
+        path: "{{ _bitcoind_staging.path }}"
+        state: absent
+      when: _bitcoind_staging.path is defined
 
 - name: "Bitcoind | Copy Bitcoin systemd file into '/lib/systemd/system/bitcoind-{{ bitcoind_network }}.service'"
   ansible.builtin.template:
@@ -129,7 +191,7 @@
   notify:
     - Bitcoind | Ensure bitcoind systemd unit is restarted
 
-- name: "Bitcoind | Ensure symbolic link from '/etc/bitcoind/{{ bitcoind_network }}' to '/home/{{ bitcoind_user }}/.bitcoin' exists"
+- name: "Bitcoind | Ensure symbolic link from '{{ bitcoind_data_dir }}' to '/home/{{ bitcoind_user }}/.bitcoin' exists"
   ansible.builtin.file:
     src: "{{ bitcoind_data_dir }}"
     dest: /home/{{ bitcoind_user }}/.bitcoin
@@ -137,12 +199,16 @@
     owner: "{{ bitcoind_user }}"
     group: "{{ bitcoind_group }}"
 
+# Fix #4: mode 0640 — config contains rpcauth hash
+# Fix #10: no_log — prevent rpcauth from leaking into Ansible output
 - name: "Bitcoind | Copy bitcoin.conf file into '{{ bitcoind_data_dir }}/bitcoind.conf'"
   ansible.builtin.template:
     src: bitcoin.conf.j2
     dest: "{{ bitcoind_data_dir }}/bitcoind.conf"
     owner: "{{ bitcoind_user }}"
     group: "{{ bitcoind_group }}"
+    mode: "0640"
+  no_log: true
   notify:
     - Bitcoind | Ensure bitcoind systemd unit is restarted
 
@@ -157,3 +223,6 @@
   ansible.builtin.template:
     src: .bitcoind.version.j2
     dest: "{{ bitcoind_data_dir }}/.bitcoind.version"
+    owner: "{{ bitcoind_user }}"
+    group: "{{ bitcoind_group }}"
+    mode: "0644"

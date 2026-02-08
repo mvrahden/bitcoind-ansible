@@ -3,3 +3,4 @@ molecule/*/venv
 .vagrant
 */test-bitcoin.conf
 */.vscode
+.venv
