@@ -16,8 +16,8 @@ bitcoind_arch: ""
 # Serve JSON-RPC
 bitcoind_server: true
 
-# Wallet
-bitcoind_disablewallet: false
+# Wallet (disabled by default — enable only if you need on-node wallet functionality)
+bitcoind_disablewallet: true
 
 # Transaction index (increases disk usage significantly)
 bitcoind_txindex: true
@@ -68,8 +68,8 @@ bitcoind_rpc_allow_ips:
   - 127.0.0.1
 
 # ZMQ pub/sub endpoints for raw blocks and transactions.
-# Set to false to disable ZMQ entirely.
-bitcoind_enable_zmq: true
+# Disabled by default — enable if you have ZMQ subscribers (e.g. Lightning, mempool).
+bitcoind_enable_zmq: false
 bitcoind_zmq_host: 127.0.0.1
 bitcoind_zmq_port_rawblock: 28332
 bitcoind_zmq_port_rawtx: 28333
