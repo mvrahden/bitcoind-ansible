@@ -11,8 +11,8 @@
 # config file.
 
 [Unit]
-Description=Bitcoin Core daemon for network {{ bitcoind_network | capitalize }}
-Documentation=https://github.com/bitcoin/bitcoin/blob/master/doc/init.md
+Description=Bitcoin {{ 'Knots' if bitcoind_implementation == 'knots' else 'Core' }} daemon for network {{ bitcoind_network | capitalize }}
+Documentation={{ 'https://github.com/bitcoinknots/bitcoin/blob/master/doc/init.md' if bitcoind_implementation == 'knots' else 'https://github.com/bitcoin/bitcoin/blob/master/doc/init.md' }}
 
 # https://www.freedesktop.org/wiki/Software/systemd/NetworkTarget/
 After=network-online.target

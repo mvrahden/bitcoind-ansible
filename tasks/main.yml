@@ -3,15 +3,36 @@
   ansible.builtin.set_fact:
     _bitcoind_change_version: false # default
 
+- name: Bitcoind | Validate implementation is supported
+  ansible.builtin.fail:
+    msg: >-
+      bitcoind_implementation must be "core" or "knots", got "{{ bitcoind_implementation }}".
+  when: bitcoind_implementation not in ['core', 'knots']
+
+- name: Bitcoind | Set implementation-specific facts
+  ansible.builtin.set_fact:
+    _bitcoind_pgp_builders: >-
+      {{ bitcoind_pgp_builders_pub_key_core
+         if bitcoind_implementation == 'core'
+         else bitcoind_pgp_builders_pub_key_knots }}
+    _bitcoind_base_url: >-
+      {{ 'https://bitcoincore.org/bin/bitcoin-core-' ~ bitcoind_version
+         if bitcoind_implementation == 'core'
+         else 'https://bitcoinknots.org/files/' ~ bitcoind_version.split('.')[0] ~ '.x/' ~ bitcoind_version }}
+    _bitcoind_guix_sigs_base_url: >-
+      {{ 'https://raw.githubusercontent.com/bitcoin-core/guix.sigs/main'
+         if bitcoind_implementation == 'core'
+         else 'https://raw.githubusercontent.com/bitcoinknots/guix.sigs/knots' }}
+
 # Fix #2: GPG verification must be explicitly configured or explicitly skipped
 - name: Bitcoind | Validate GPG verification is configured
   ansible.builtin.fail:
     msg: >-
-      bitcoind_pgp_builders_pub_key must contain at least one GPG key for binary
+      GPG builder keys must contain at least one GPG key for binary
       signature verification. Set bitcoind_skip_gpg_verification=true to bypass
       (not recommended).
   when:
-    - bitcoind_pgp_builders_pub_key is not defined or bitcoind_pgp_builders_pub_key | length == 0
+    - _bitcoind_pgp_builders | length == 0
     - not (bitcoind_skip_gpg_verification | default(false) | bool)
 
 # Fix #3: RPC credential must be provided — no hardcoded default
@@ -30,7 +51,7 @@
   with_items:
     - gpg
     - dirmngr
-  when: bitcoind_pgp_builders_pub_key is defined and bitcoind_pgp_builders_pub_key | length > 0
+  when: _bitcoind_pgp_builders | length > 0
 
 - name: "Bitcoind | Ensure group '{{ bitcoind_group }}' exists"
   ansible.builtin.group:
@@ -78,15 +99,15 @@
 
 - name: "Bitcoind | Determine version change from version cookie vs. configured version"
   set_fact:
-    _bitcoind_change_version: "{{ _bitcoind_version_cookie_file['content'] | b64decode | regex_findall('(\\d+\\.\\d+)') | first is version(bitcoind_version, '!=' , strict=true)}}"
+    _bitcoind_change_version: "{{ (_bitcoind_version_cookie_file['content'] | b64decode | trim | split('\n') | last) != (bitcoind_version | string) }}"
   when: "not _bitcoind_version_cookie_file.failed"
 
 - name: "Bitcoind | Debug detected version change from cookie"
   debug:
     msg: "{{ _bitcoind_change_version }}"
 
-# ── Download, verify, and install Bitcoin Core (only on first install or version change) ──
-- name: Bitcoind | Download, verify, and install Bitcoin Core
+# ── Download, verify, and install Bitcoin (only on first install or version change) ──
+- name: Bitcoind | Download, verify, and install Bitcoin
   when: _bitcoind_version_cookie_file.failed or _bitcoind_change_version | bool
   block:
     # Fix #5: Secure staging directory (unpredictable path, 0700, root-owned)
@@ -115,7 +136,7 @@
 
     - name: "Bitcoind | Download SHA256SUMS for Bitcoin v{{ bitcoind_version }}"
       ansible.builtin.get_url:
-        url: https://bitcoincore.org/bin/bitcoin-core-{{ bitcoind_version }}/SHA256SUMS
+        url: "{{ _bitcoind_base_url }}/SHA256SUMS"
         dest: "{{ _bitcoind_staging.path }}/SHA256SUMS"
         http_agent: yourbtc-ansible
 
@@ -124,8 +145,8 @@
       vars:
         gpg_user: "{{ item.name }}"
         gpg_id: "{{ item.id }}"
-      with_items: "{{ bitcoind_pgp_builders_pub_key }}"
-      when: bitcoind_pgp_builders_pub_key is defined and bitcoind_pgp_builders_pub_key | length > 0
+      with_items: "{{ _bitcoind_pgp_builders }}"
+      when: _bitcoind_pgp_builders | length > 0
 
     # Fix #1: Extract checksum from the GPG-verified SHA256SUMS (not a fresh HTTP fetch)
     - name: "Bitcoind | Extract verified checksum for bitcoin-{{ bitcoind_version }}-{{ bitcoind_arch }}.tar.gz"
@@ -137,22 +158,22 @@
       changed_when: false
       failed_when: _bitcoind_verified_checksum.stdout | length != 64
 
-    - name: "Bitcoind | Download Bitcoin Core v{{ bitcoind_version }}"
+    - name: "Bitcoind | Download Bitcoin v{{ bitcoind_version }}"
       ansible.builtin.get_url:
-        url: https://bitcoincore.org/bin/bitcoin-core-{{ bitcoind_version }}/bitcoin-{{ bitcoind_version }}-{{ bitcoind_arch }}.tar.gz
-        dest: "{{ _bitcoind_staging.path }}/bitcoin-core-{{ bitcoind_version }}-{{ bitcoind_arch }}.tar.gz"
+        url: "{{ _bitcoind_base_url }}/bitcoin-{{ bitcoind_version }}-{{ bitcoind_arch }}.tar.gz"
+        dest: "{{ _bitcoind_staging.path }}/bitcoin-{{ bitcoind_version }}-{{ bitcoind_arch }}.tar.gz"
         checksum: "sha256:{{ _bitcoind_verified_checksum.stdout }}"
         http_agent: yourbtc-ansible
 
     - name: "Bitcoind | Ensure extraction directory exists"
       ansible.builtin.file:
-        path: "{{ _bitcoind_staging.path }}/bitcoin-core-{{ bitcoind_version }}"
+        path: "{{ _bitcoind_staging.path }}/bitcoin-{{ bitcoind_version }}"
         state: directory
 
-    - name: "Bitcoind | Unpack Bitcoin Core v{{ bitcoind_version }}"
+    - name: "Bitcoind | Unpack Bitcoin v{{ bitcoind_version }}"
       ansible.builtin.unarchive:
-        src: "{{ _bitcoind_staging.path }}/bitcoin-core-{{ bitcoind_version }}-{{ bitcoind_arch }}.tar.gz"
-        dest: "{{ _bitcoind_staging.path }}/bitcoin-core-{{ bitcoind_version }}"
+        src: "{{ _bitcoind_staging.path }}/bitcoin-{{ bitcoind_version }}-{{ bitcoind_arch }}.tar.gz"
+        dest: "{{ _bitcoind_staging.path }}/bitcoin-{{ bitcoind_version }}"
         remote_src: true
         extra_opts:
           - --strip-components=1
@@ -169,7 +190,7 @@
 
     - name: "Bitcoind | Install binaries into '/usr/local/bin/*'"
       ansible.builtin.copy:
-        src: "{{ _bitcoind_staging.path }}/bitcoin-core-{{ bitcoind_version }}/bin/"
+        src: "{{ _bitcoind_staging.path }}/bitcoin-{{ bitcoind_version }}/bin/"
         dest: /usr/local/bin/
         remote_src: true
         owner: root
