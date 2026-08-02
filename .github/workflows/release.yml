@@ -1,20 +1,107 @@
+# Publishing is driven by creating a GitHub Release, so the tag is chosen there
+# rather than inferred from whatever tag happened to be pushed.
+#
+# Ansible Galaxy takes a standalone role's versions from the repository's git
+# tags, but imports the role's *content* from a branch. Those are two separate
+# things and they have to agree: publishing a tag that lives on a side branch
+# would register the new version while importing whatever the default branch
+# happens to contain. The ancestry check below is what stops that.
 ---
 name: Release to Galaxy
 on:
-  push:
-    tags:
-      - '*'
+  release:
+    types: [published]
+  # Re-run a publish without cutting a new release, e.g. after a Galaxy outage.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to publish
+        required: true
+
+permissions:
+  contents: read
 
 jobs:
-
   release:
     runs-on: ubuntu-latest
     steps:
-      - name: checkout
+      - name: Check out the repository with full history
         uses: actions/checkout@v4
-
-      - name: galaxy
-        uses: robertdebock/galaxy-action@1.2.1
         with:
-          galaxy_api_key: ${{ secrets.GALAXY_API_KEY }}
-          git_branch: main
+          # Galaxy reads versions from tags, and the ancestry check needs the
+          # branch history, so a shallow clone is not enough.
+          fetch-depth: 0
+
+      - name: Determine the tag being released
+        id: release
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TAG}" ]; then
+            echo "::error::No tag to publish."
+            exit 1
+          fi
+          if ! printf '%s' "${TAG}" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::Tag '${TAG}' is not a semantic version, so Galaxy would not treat it as a release."
+            exit 1
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify the tag is on the default branch
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          if ! git merge-base --is-ancestor "${TAG}" "origin/${DEFAULT_BRANCH}"; then
+            echo "::error::Tag '${TAG}' is not an ancestor of ${DEFAULT_BRANCH}."
+            echo "::error::Galaxy imports role content from ${DEFAULT_BRANCH}, so publishing now would"
+            echo "::error::register ${TAG} against whatever ${DEFAULT_BRANCH} currently contains."
+            echo "::error::Merge the release branch first, then publish."
+            exit 1
+          fi
+
+      - name: Verify the CHANGELOG documents this version
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -f CHANGELOG.md ] && ! grep -Eq "^## +v?${VERSION}( |$|[^0-9])" CHANGELOG.md; then
+            echo "::warning::CHANGELOG.md has no heading for ${VERSION}."
+          fi
+
+      # Installed into a venv because the runner's Python is externally managed
+      # (PEP 668), which makes a plain `pip install` fail.
+      - name: Install ansible-core
+        run: |
+          set -euo pipefail
+          python3 -m venv /tmp/galaxy-venv
+          /tmp/galaxy-venv/bin/pip install --disable-pip-version-check --quiet ansible-core
+
+      # Done directly rather than through a third-party action: the action is a
+      # one-line wrapper around this command, and it runs an unpinned Docker
+      # image that would receive the Galaxy API key.
+      - name: Import the role into Galaxy
+        env:
+          GALAXY_API_KEY: ${{ secrets.GALAXY_API_KEY }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          /tmp/galaxy-venv/bin/ansible-galaxy role import \
+            --api-key "${GALAXY_API_KEY}" \
+            --branch "${DEFAULT_BRANCH}" \
+            "${GITHUB_REPOSITORY%/*}" "${GITHUB_REPOSITORY#*/}"
+
+      - name: Summarise what was published
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          {
+            echo "Published **${VERSION}** to Ansible Galaxy from tag \`${TAG}\`."
+            echo ""
+            echo "Galaxy derives role versions from git tags, so the published version"
+            echo "is whatever tag this release carries."
+          } >> "$GITHUB_STEP_SUMMARY"
