@@ -107,6 +107,25 @@
       {{ (bitcoind_install_binary_groups | map('extract', _bitcoind_binary_groups) | flatten
           + bitcoind_install_extra_binaries) | unique | sort }}
 
+# The authoritative check happens at install time against the unpacked release,
+# but that only runs when the version changes, so a typo could sit unnoticed
+# until the next upgrade. This catches it on every run.
+#
+# A warning rather than a failure, unlike an unknown group name: group names are
+# a closed vocabulary this role defines, whereas binary names are upstream's and
+# can grow. Refusing to proceed on a name this role has not heard of would block
+# a binary a future release adds, for no better reason than that the group table
+# is behind.
+- name: Bitcoind | Warn about individually named binaries this role does not know
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: bitcoind_install_extra_binaries names
+      {{ bitcoind_install_extra_binaries | difference(_bitcoind_binary_groups.values() | flatten) | join(', ') }},
+      which is not a binary Bitcoin Core or Knots is known to ship. Check for a
+      typo. If the release really does provide it, installation will succeed and
+      only this warning is wrong.
+  when: bitcoind_install_extra_binaries | difference(_bitcoind_binary_groups.values() | flatten) | length > 0
+
 - name: Bitcoind | Report the binaries that will be installed
   ansible.builtin.debug:
     msg: >-
@@ -128,12 +147,33 @@
     or ('bitcoin-cli' not in _bitcoind_wanted_binaries
         and (bitcoind_health_check | bool or bitcoind_install_cli_wrapper | bool))
 
-- name: Bitcoind | Validate RPC auth is configured
+# A node whose RPC only answers on loopback needs no static credential. Bitcoin
+# Core writes a cookie file on every start, and anything that can read it — the
+# health check, the bitcoin-cli wrapper, a local indexer such as electrs —
+# authenticates with that. The cookie rotates on restart and leaves no secret to
+# store or leak, so demanding rpcauth for that case was ceremony.
+#
+# It becomes necessary once RPC is reachable from elsewhere, because a remote
+# client cannot read a file on this host. That needs both a non-loopback
+# rpcbind, so the server listens somewhere reachable, and a non-loopback
+# rpcallowip, so it accepts those clients; either alone leaves RPC local.
+- name: Bitcoind | Validate RPC auth is configured when RPC is reachable remotely
   ansible.builtin.fail:
     msg: >-
-      bitcoind_rpc_auth must be set. Generate with:
-      python3 share/rpcauth/rpcauth.py <username>
-  when: bitcoind_rpc_auth | default('') | length == 0
+      RPC is exposed beyond loopback (rpcbind={{ _bitcoind_rpc_bind_effective }},
+      rpcallowip={{ _bitcoind_rpc_allow_remote | join(', ') }}) but
+      bitcoind_rpc_auth is empty. Remote clients cannot read this host's cookie
+      file, so none of them could authenticate. Generate a credential with
+      share/rpcauth/rpcauth.py, or keep RPC on loopback and let local clients
+      use the cookie.
+  vars:
+    _bitcoind_rpc_allow_remote: >-
+      {{ [bitcoind_config.rpcallowip | default(bitcoind_rpc_allow_ips)] | flatten
+         | reject('search', _bitcoind_loopback_re) | list }}
+  when:
+    - bitcoind_rpc_auth | default('') | length == 0
+    - _bitcoind_rpc_bind_effective is not search(_bitcoind_loopback_re)
+    - _bitcoind_rpc_allow_remote | length > 0
 
 # dirmngr is no longer needed: builder keys ship with the role rather than
 # being fetched from a keyserver at install time. gpg-agent still is, because
@@ -209,9 +249,27 @@
   ansible.builtin.debug:
     msg: "{{ _bitcoind_change_version }}"
 
+# Nothing here can be simulated. --check does not create the staging directory,
+# so the very first task leaves _bitcoind_staging undefined and everything after
+# it fails on a missing attribute rather than reporting what it would do. Report
+# the intent instead and let the rest of the play carry on, so --check --diff
+# remains usable for previewing configuration changes.
+- name: Bitcoind | Report the install that --check cannot simulate
+  ansible.builtin.debug:
+    msg: >-
+      Would download, verify and install Bitcoin
+      {{ bitcoind_implementation }} v{{ bitcoind_version }}
+      ({{ _bitcoind_wanted_binaries | join(', ') }}).
+      Skipped because this is a check-mode run.
+  when:
+    - ansible_check_mode
+    - not _bitcoind_version_cookie_stat.stat.exists or _bitcoind_change_version | bool
+
 # ── Download, verify, and install Bitcoin (only on first install or version change) ──
 - name: Bitcoind | Download, verify, and install Bitcoin
-  when: not _bitcoind_version_cookie_stat.stat.exists or _bitcoind_change_version | bool
+  when:
+    - not ansible_check_mode
+    - not _bitcoind_version_cookie_stat.stat.exists or _bitcoind_change_version | bool
   block:
     # Fix #5: Secure staging directory (unpredictable path, 0700, root-owned)
     - name: Bitcoind | Create secure staging directory

@@ -41,6 +41,16 @@ _bitcoind_binary_groups:
     - test_bitcoin-qt
     - bench_bitcoin
 
+# Addresses that only reach this host. Used to decide whether RPC is exposed
+# beyond the machine, and so whether a static credential is needed at all: the
+# cookie file only helps clients that can read it locally.
+_bitcoind_loopback_re: '^(127\.|::1$|\[::1\]$|localhost$)'
+
+# rpcbind after bitcoind_config has had its say, since that overrides the named
+# variable and the exposure decision has to reflect what will actually be
+# written to bitcoin.conf.
+_bitcoind_rpc_bind_effective: "{{ bitcoind_config.rpcbind | default(bitcoind_rpc_bind) }}"
+
 _bitcoind_arch_map:
   x86_64: x86_64-linux-gnu
   aarch64: aarch64-linux-gnu

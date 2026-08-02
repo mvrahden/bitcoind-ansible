@@ -112,9 +112,15 @@ bitcoind_bind: 127.0.0.1
 # --check --diff, accepting that the hash appears in the output.
 bitcoind_no_log: true
 
-# Bitcoin RPC server auth data (required — no default for security).
+# Bitcoin RPC credential, as the "rpcauth=" value without that prefix.
 # Generate with: python3 share/rpcauth/rpcauth.py <username>
-# The output line "rpcauth=..." goes here (without the "rpcauth=" prefix).
+#
+# Only needed when RPC is reachable from another host, meaning both a
+# non-loopback bitcoind_rpc_bind and a non-loopback entry in
+# bitcoind_rpc_allow_ips. Left empty, a node authenticates local clients with
+# the cookie file Bitcoin Core writes into the data directory on every start,
+# which rotates on restart and leaves no secret to store. The role's health
+# check, the bitcoin-cli wrapper and local indexers all use it.
 bitcoind_rpc_auth: ""
 bitcoind_rpc_bind: 127.0.0.1
 bitcoind_rpc_port: 8332
@@ -145,8 +151,15 @@ bitcoind_use_onion: false
 # port, which the service unit grants via SupplementaryGroups. Enabling this
 # wires up listenonion, torcontrol and the proxy together.
 #
-# The role does not install or configure Tor. Tor must already be running with
-# ControlPort 9051 and CookieAuthentication 1.
+# The role does not install or configure Tor. Tor must already be running with:
+#
+#   ControlPort 127.0.0.1:9051
+#   CookieAuthentication 1
+#   CookieAuthFileGroupReadable 1
+#
+# The third line is the one that is easy to miss. Without it Tor writes its
+# control cookie mode 0600, so belonging to the control group does not help and
+# the daemon still cannot publish an onion address.
 bitcoind_tor_enabled: false
 bitcoind_tor_proxy: 127.0.0.1:9050
 bitcoind_tor_control: 127.0.0.1:9051

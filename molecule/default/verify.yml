@@ -53,7 +53,7 @@
           - not item.stat.exists
         fail_msg: >-
           {{ item.item }} is present in /usr/local/bin but is not in
-          bitcoind_install_binaries.
+          bitcoind_install_binary_groups.
       with_items: "{{ _unexpected_stat.results }}"
 
     # The point of the wrapper is that an operator needs no flags at all.

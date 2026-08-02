@@ -35,16 +35,32 @@ ansible-galaxy install -r requirements.yml
 
 ## How to run this?
 
-`bitcoind_rpc_auth` is required. Generate it with
-[rpcauth.py](https://raw.githubusercontent.com/bitcoin/bitcoin/master/share/rpcauth/rpcauth.py)
-and pass the value after `rpcauth=`.
-
 ### Bitcoin Core (default)
 
 ```yaml
 - hosts: bitcoind
   become: yes
+  roles:
+    - role: mvrahden.bitcoind
+```
+
+That is the whole thing. RPC answers on loopback, and local clients — the
+health check, the `bitcoin-cli` wrapper, an indexer on the same host —
+authenticate with the cookie file Bitcoin Core writes on every start.
+
+You only need a credential once RPC should answer other hosts, which means a
+non-loopback `bitcoind_rpc_bind` *and* a non-loopback entry in
+`bitcoind_rpc_allow_ips`. Generate one with
+[rpcauth.py](https://raw.githubusercontent.com/bitcoin/bitcoin/master/share/rpcauth/rpcauth.py)
+and pass the value after `rpcauth=`; the role refuses to expose RPC without it,
+since remote clients cannot read this host's cookie.
+
+```yaml
+- hosts: bitcoind
+  become: yes
   vars:
+    bitcoind_rpc_bind: 0.0.0.0
+    bitcoind_rpc_allow_ips: [10.0.0.0/8]
     bitcoind_rpc_auth: "alice:f7efda5c189b...$d5b51b3beffbc02b..."
   roles:
     - role: mvrahden.bitcoind
@@ -58,7 +74,6 @@ and pass the value after `rpcauth=`.
   vars:
     bitcoind_implementation: knots
     bitcoind_version: "29.3.knots20260508"
-    bitcoind_rpc_auth: "alice:f7efda5c189b...$d5b51b3beffbc02b..."
   roles:
     - role: mvrahden.bitcoind
 ```
@@ -194,9 +209,18 @@ bitcoind_txindex: true     # required for address lookups
 
 **Tor**
 
-Routes traffic through Tor and publishes an onion address. Requires a running
-Tor daemon with `ControlPort 9051` and `CookieAuthentication 1`; the role does
-not install or configure Tor.
+Routes traffic through Tor and publishes an onion address. The role does not
+install or configure Tor; it must already be running with:
+
+```
+ControlPort 127.0.0.1:9051
+CookieAuthentication 1
+CookieAuthFileGroupReadable 1
+```
+
+The last line is easy to miss. Without it Tor writes its control cookie mode
+`0600`, so membership of `debian-tor` does not help and no onion address is
+published.
 
 ```yaml
 bitcoind_tor_enabled: true
@@ -235,7 +259,7 @@ Node configuration:
 | `bitcoind_txindex`            | `true`          | Maintain full transaction index                       |
 | `bitcoind_listen`             | `true`          | Listen for incoming peer connections                  |
 | `bitcoind_whitelist`          | `127.0.0.1`     | Whitelist address (empty to disable)                  |
-| `bitcoind_rpc_auth`           | _(required)_    | Generate with `rpcauth.py`                            |
+| `bitcoind_rpc_auth`           | _(cookie auth)_ | Only needed when RPC is reachable remotely            |
 | `bitcoind_rpc_bind`           | `127.0.0.1`     | Address to expose the RPC server                      |
 | `bitcoind_rpc_port`           | `8332`          |                                                       |
 | `bitcoind_rpc_allow_ips`      | `[127.0.0.1]`   | IP or range like `10.0.0.0/24`                        |

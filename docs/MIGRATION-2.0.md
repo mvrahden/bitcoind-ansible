@@ -119,6 +119,23 @@ disabled, so it will not fail your run.
 
 Every other variable combination produces an identical effective configuration.
 
+### `bitcoind_rpc_auth` is no longer required
+
+1.x refused to run without a credential. 2.0 requires one only when RPC is
+reachable from another host, meaning **both** a non-loopback `bitcoind_rpc_bind`
+*and* a non-loopback entry in `bitcoind_rpc_allow_ips`. Either alone still leaves
+RPC local.
+
+Nothing to do if you already set it: the value is used exactly as before. But you
+can now drop it for a loopback-only node, along with whatever generates and
+stores it. Local clients — the health check, the `bitcoin-cli` wrapper, an
+indexer such as electrs on the same host — authenticate with the cookie file
+Bitcoin Core writes on every start. A cookie rotates on restart and leaves no
+secret to store, rotate or leak.
+
+If you expose RPC and leave the credential empty, the run now fails rather than
+producing a node no remote client can authenticate to.
+
 ### Only the binaries a node needs are installed
 
 1.x copied every binary in the release tarball into `/usr/local/bin`. 2.0 selects
@@ -144,6 +161,8 @@ whichever of its binaries the release actually ships, so the same setting works
 for Core and Knots despite their differing binary sets. To pick individual
 binaries instead, use `bitcoind_install_extra_binaries`; those must exist in the
 release, and asking for one that does not fails the run with a list of what does.
+A name no Bitcoin release is known to ship is flagged on every run, so a typo
+does not wait for your next version bump to surface.
 
 Note that `wallet` is not implied by setting `bitcoind_disablewallet: false`.
 `bitcoin-wallet` is an *offline* tool for creating and repairing wallet files; a
@@ -225,8 +244,10 @@ bitcoind_tor_enabled: true
 
 This wires up `proxy`, `listenonion` and `torcontrol`, and grants the service
 control-cookie access through `SupplementaryGroups` in the unit. Tor must
-already be running with `ControlPort 9051` and `CookieAuthentication 1`; the
-role does not install or configure Tor.
+already be running with `ControlPort 127.0.0.1:9051`, `CookieAuthentication 1`
+and `CookieAuthFileGroupReadable 1`; the role does not install or configure Tor.
+That last directive is easy to miss: without it Tor writes the cookie mode
+`0600` and group membership does not help.
 
 ---
 
@@ -244,7 +265,9 @@ role does not install or configure Tor.
 | `bitcoind_gpg_allow_expired_keys` | `false` | Count signatures from expired keys |
 | `bitcoind_no_log` | `true` | Set `false` to preview config changes with `--check --diff` |
 | `bitcoind_install_binary_groups` | `[node, cli]` | Which binaries to install, by purpose |
+| `bitcoind_install_extra_binaries` | `[]` | Individual binaries alongside the groups |
 | `bitcoind_install_cli_wrapper` | `true` | `bitcoin-cli-<network>` needing no flags |
+| `bitcoind_rpc_auth` | _(cookie auth)_ | Now optional for a loopback-only node |
 
 ## Verifying the upgrade
 
@@ -261,8 +284,15 @@ To see exactly what will change in `bitcoin.conf` before committing to it:
 ansible-playbook -l one-node playbook.yml --check --diff -e bitcoind_no_log=false
 ```
 
-That prints the rendered config, including the `rpcauth` hash — run it somewhere
-the output is not captured.
+That prints the rendered config, including the `rpcauth` hash if you set one, so
+run it somewhere the output is not captured.
+
+Note that 1.x could not do this at all. A check-mode run died on the first task
+of the install block, because `--check` does not create the staging directory and
+everything after it referenced a path that was never set. 2.0 reports what it
+would download and install, then carries on, so the configuration diff is
+actually reachable. The download, verification and binary install themselves are
+still not simulated — there is no honest way to do so without performing them.
 
 Afterwards, confirm the version and that the node is healthy:
 
@@ -284,5 +314,11 @@ rm -f /etc/systemd/system/bitcoind-<network>.service
 systemctl daemon-reload
 ```
 
-Note that a 1.x role will again be unable to install any Bitcoin release newer
-than its pinned default.
+Two things to know before rolling back:
+
+- **If you dropped `bitcoind_rpc_auth`**, put it back first. 1.x refuses to run
+  without a credential, so a node you converted to cookie-only authentication
+  will fail the first 1.x run. The daemon keeps working throughout; it is the
+  playbook that stops.
+- **A 1.x role is again unable to install any Bitcoin release newer than its
+  pinned default**, which is the defect 2.0 exists to fix.

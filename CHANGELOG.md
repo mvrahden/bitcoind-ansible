@@ -19,6 +19,10 @@
   than set to `0`, and `bitcoind` defaults `-server` to `1`, so the RPC server
   stayed enabled. This is the only case where 2.0 renders a different effective
   configuration than 1.x.
+- `--check` runs died on the first task of the install block. Check mode does
+  not create the staging directory, so every task after it referenced a path that
+  was never set. The role now reports what it would install and continues, making
+  `--check --diff` usable for previewing configuration changes.
 - The health check ran before the restart handler, so on a configuration change
   it validated the daemon's previous configuration and the version cookie
   recorded success before the restart had happened. Handlers are now flushed
@@ -66,6 +70,9 @@
   primary key fingerprint verification matches on. An armored key block is not
   human-reviewable in a diff; a fingerprint list is.
 - [docs/MIGRATION-2.0.md](docs/MIGRATION-2.0.md).
+- A warning when `bitcoind_install_extra_binaries` names something no Bitcoin
+  release is known to ship, so a typo surfaces on every run rather than waiting
+  for the next version bump to reach the authoritative check.
 - Preflight validation for the `prune` × `txindex`/`coinstatsindex` conflict,
   unsupported architectures, non-Debian systems, and a missing Tor group.
 - Debian 12 and 13 and Ubuntu 24.04 in the test matrix, alongside Ubuntu 22.04.
@@ -100,6 +107,14 @@
   began, but the licence text was never committed.
 
 ### Changed
+
+- `bitcoind_rpc_auth` is no longer required. A node whose RPC answers only on
+  loopback authenticates local clients with the cookie file Bitcoin Core writes
+  on every start, which rotates on restart and leaves no secret to store. A
+  credential is still required, and now enforced, once RPC is reachable from
+  another host — meaning a non-loopback `bitcoind_rpc_bind` *and* a non-loopback
+  `bitcoind_rpc_allow_ips` — because a remote client cannot read this host's
+  cookie.
 
 - Defaults move to Bitcoin Core 31.1 and Bitcoin Knots 29.3.knots20260508.
 - `bitcoin.conf` is assembled as a single merged dictionary and rendered once,
