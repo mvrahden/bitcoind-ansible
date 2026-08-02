@@ -53,6 +53,47 @@
     or bitcoind_pgp_builders_pub_key_knots is defined
 
 # Fix #3: RPC credential must be provided — no hardcoded default
+# Pruning cannot coexist with the transaction or coinstats indexes. Because
+# txindex defaults to true, enabling pruning otherwise fails at daemon startup
+# with a message that gives no hint about which setting to change.
+- name: Bitcoind | Validate pruning does not conflict with enabled indexes
+  ansible.builtin.fail:
+    msg: >-
+      prune={{ bitcoind_config.prune }} conflicts with
+      {{ 'txindex' if _bitcoind_effective_txindex else '' }}
+      {{ 'coinstatsindex' if _bitcoind_effective_coinstatsindex else '' }}.
+      A pruned node discards the block data these indexes require. Disable the
+      index (bitcoind_txindex=false) or remove prune from bitcoind_config.
+  vars:
+    _bitcoind_effective_txindex: "{{ bitcoind_config.txindex | default(bitcoind_txindex) | bool }}"
+    _bitcoind_effective_coinstatsindex: "{{ bitcoind_config.coinstatsindex | default(false) | bool }}"
+  when:
+    - (bitcoind_config.prune | default(0) | int) > 0
+    - _bitcoind_effective_txindex or _bitcoind_effective_coinstatsindex
+
+- name: Bitcoind | Look up the Tor control group
+  ansible.builtin.getent:
+    database: group
+    key: "{{ bitcoind_tor_control_group }}"
+    fail_key: false
+  when:
+    - bitcoind_tor_enabled | bool
+    - bitcoind_tor_control_group | length > 0
+
+- name: Bitcoind | Validate Tor control group exists when Tor is enabled
+  ansible.builtin.fail:
+    msg: >-
+      bitcoind_tor_enabled is set but the group
+      "{{ bitcoind_tor_control_group }}" does not exist, so the daemon cannot
+      read Tor's control authentication cookie and would never publish an onion
+      address. Install Tor, or set bitcoind_tor_control_group to the group that
+      owns its control cookie.
+  when:
+    - bitcoind_tor_enabled | bool
+    - bitcoind_tor_control_group | length > 0
+    - ansible_facts.getent_group[bitcoind_tor_control_group] is not defined
+      or ansible_facts.getent_group[bitcoind_tor_control_group] is none
+
 - name: Bitcoind | Validate RPC auth is configured
   ansible.builtin.fail:
     msg: >-

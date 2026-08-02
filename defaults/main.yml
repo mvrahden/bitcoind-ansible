@@ -92,3 +92,37 @@ bitcoind_nodes: []
 
 # Restrict to onion network only (requires bitcoind_proxy pointing at Tor)
 bitcoind_use_onion: false
+
+# Tor integration.
+#
+# Setting bitcoind_proxy alone routes outbound traffic through Tor but does not
+# publish an onion address: that additionally requires access to Tor's control
+# port, which the service unit grants via SupplementaryGroups. Enabling this
+# wires up listenonion, torcontrol and the proxy together.
+#
+# The role does not install or configure Tor. Tor must already be running with
+# ControlPort 9051 and CookieAuthentication 1.
+bitcoind_tor_enabled: false
+bitcoind_tor_proxy: 127.0.0.1:9050
+bitcoind_tor_control: 127.0.0.1:9051
+# System group owning Tor's control authentication cookie.
+bitcoind_tor_control_group: debian-tor
+
+# Arbitrary bitcoin.conf options, applied last so they override anything
+# derived from the variables above. This is the escape hatch for every option
+# the role does not name explicitly (prune, dbcache, maxconnections,
+# blockfilterindex, maxuploadtarget, datacarriersize, ...).
+#
+#   bitcoind_config:
+#     prune: 550
+#     dbcache: 2048
+#     blockfilterindex: true
+#     maxuploadtarget: 5000
+#
+# Booleans render as 1/0 and lists render as repeated keys.
+bitcoind_config: {}
+
+# Options scoped to the active network. For any network other than main these
+# are emitted under the matching [section], because bind, rpcbind, rpcport and
+# addnode otherwise apply to mainnet only.
+bitcoind_network_config: {}

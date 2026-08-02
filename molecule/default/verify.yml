@@ -96,6 +96,41 @@
           - _cookie_stat.stat.pw_name == bitcoind_user
           - _cookie_stat.stat.gr_name == bitcoind_group
 
+    - name: "Read generated bitcoin.conf"
+      ansible.builtin.slurp:
+        src: "{{ bitcoind_data_dir }}/bitcoind.conf"
+      register: _conf_raw
+
+    - name: "Parse bitcoin.conf into keys"
+      ansible.builtin.set_fact:
+        _conf_lines: >-
+          {{ (_conf_raw.content | b64decode).splitlines()
+             | map('trim') | select('search', '^[a-z]') | list }}
+
+    - name: "Test bitcoind_config passthrough and override semantics"
+      ansible.builtin.assert:
+        that:
+          # options the role does not expose as named variables
+          - "'dbcache=512' in _conf_lines"
+          - "'maxconnections=40' in _conf_lines"
+          - "'uacomment=molecule' in _conf_lines"
+          # bitcoind_config overrides the named variable (default is true)
+          - "'txindex=0' in _conf_lines"
+          - "'txindex=1' not in _conf_lines"
+          # booleans render as 1/0, not True/False
+          - _conf_lines | select('search', '=(True|False)$') | list | length == 0
+          # every key appears exactly once
+          - >-
+            _conf_lines | map('regex_replace', '=.*$', '') | list | length
+            == _conf_lines | map('regex_replace', '=.*$', '') | unique | list | length
+        fail_msg: "Rendered config: {{ _conf_lines }}"
+
+    - name: "Test network-scoped options are in the [{{ bitcoind_network }}] section"
+      ansible.builtin.assert:
+        that:
+          - "'[' ~ bitcoind_network ~ ']' in (_conf_raw.content | b64decode)"
+          - "'bind=127.0.0.1' in (_conf_raw.content | b64decode).split('[' ~ bitcoind_network ~ ']')[1]"
+
     - name: "Check symlink"
       ansible.builtin.stat:
         path: "/home/{{ bitcoind_user }}/.bitcoin"
