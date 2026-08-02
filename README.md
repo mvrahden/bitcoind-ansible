@@ -165,6 +165,7 @@ Node configuration:
 | `bitcoind_use_onion`          | `false`         | Restrict to onion network only                        |
 | `bitcoind_nodes`              | `[]`            | Peers to add via `addnode=`                           |
 | `bitcoind_health_check`       | `true`          | Confirm RPC responds after start                      |
+| `bitcoind_no_log`             | `true`          | `false` to preview config with `--check --diff`       |
 | `bitcoind_rpc_wait_timeout`   | `120`           | Seconds to wait for RPC                               |
 
 Tor:
@@ -244,12 +245,9 @@ Use any ID from the requirements table as `DISTRO`.
 
 ## Migrating from 1.x
 
-`bitcoind_pgp_builders_pub_key_core` and `bitcoind_pgp_builders_pub_key_knots`
-no longer exist. Playbooks setting them keep working and emit a warning; remove
-them. If you were narrowing trust to specific builders, express that with
-`bitcoind_gpg_trusted_fingerprints` and `bitcoind_gpg_min_valid_signatures`.
+Most playbooks need one small edit or none at all. The generated `bitcoin.conf`
+is semantically identical to 1.x for every variable combination but one, and the
+data directory is untouched.
 
-If you customised `bitcoin.conf` by forking the template, most of it can move
-into `bitcoind_config` instead.
-
-See [CHANGELOG.md](CHANGELOG.md) for the full list.
+See **[docs/MIGRATION-2.0.md](docs/MIGRATION-2.0.md)** for the full guide, and
+[CHANGELOG.md](CHANGELOG.md) for the complete change list.

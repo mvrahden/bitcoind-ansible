@@ -13,8 +13,17 @@
 # third-party certifications (which make some keys 80 KB+) while retaining the
 # self-signatures and subkey binding signatures needed for verification.
 #
-# The role does not fetch keys at runtime, so this script is the only path by
-# which the trust anchor changes. Review the resulting diff carefully.
+# These keys are the role's entire trust anchor, and the role never fetches keys
+# at run time, so this script is the only way that anchor changes. Two things
+# follow, both of which this script depends on:
+#
+#   1. A MANIFEST is written alongside the keys, listing each builder against
+#      the primary key fingerprint that verification actually matches on. An
+#      armored key block is not reviewable by a human, but a fingerprint is:
+#      review the MANIFEST diff, not the .asc diff.
+#   2. The new bundle is assembled in full and only then swapped into place, so
+#      an interrupted or failed run cannot leave a partial trust anchor behind
+#      for someone to commit by accident.
 #
 # Usage: scripts/update-builder-keys.sh [core|knots|all]
 
@@ -30,15 +39,15 @@ fetch_impl() {
   tmp="$(mktemp -d)"
   trap 'rm -rf "${tmp}"' RETURN
 
+  local staged="${tmp}/staged"
+  mkdir -p "${staged}"
+
   echo "==> ${impl}: listing builder-keys from ${repo}@${ref}"
   local names
   names="$(curl -fsSL "https://api.github.com/repos/${repo}/contents/builder-keys?ref=${ref}" \
     | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"//')"
 
   [ -n "${names}" ] || { echo "ERROR: no builder keys listed for ${impl}" >&2; return 1; }
-
-  rm -rf "${outdir}"
-  mkdir -p "${outdir}"
 
   local count=0
   for name in ${names}; do
@@ -53,15 +62,38 @@ fetch_impl() {
     chmod 700 "${ring}"
     gpg --homedir "${ring}" --batch --quiet --import "${tmp}/${name}" 2>/dev/null
     gpg --homedir "${ring}" --batch --quiet --armor \
-        --export-options export-minimal --export > "${outdir}/${builder}.asc"
-    gpgconf --homedir "${ring}" --kill gpg-agent >/dev/null 2>&1 || true
+        --export-options export-minimal --export > "${staged}/${builder}.asc"
 
-    [ -s "${outdir}/${builder}.asc" ] || {
+    [ -s "${staged}/${builder}.asc" ] || {
       echo "ERROR: empty export for ${impl}/${builder}" >&2
       return 1
     }
+
+    # Primary key fingerprints, which are what the role matches signatures
+    # against. A key file may legitimately carry more than one.
+    gpg --homedir "${ring}" --batch --with-colons --fingerprint \
+      | awk -F: '/^pub:/ { want = 1 } /^fpr:/ { if (want) { print $10; want = 0 } }' \
+      | while read -r fpr; do printf '%s %s\n' "${fpr}" "${builder}"; done \
+      >> "${tmp}/manifest.unsorted"
+
+    gpgconf --homedir "${ring}" --kill gpg-agent >/dev/null 2>&1 || true
     count=$((count + 1))
   done
+
+  {
+    echo "# Trusted builder keys for Bitcoin ${impl}, bundled by"
+    echo "# scripts/update-builder-keys.sh from ${repo}@${ref}."
+    echo "#"
+    echo "# Primary key fingerprint, then builder. Verification matches primary"
+    echo "# fingerprints, so review changes to this file rather than to the"
+    echo "# armored key blocks, which are not human-reviewable."
+    sort "${tmp}/manifest.unsorted"
+  } > "${staged}/MANIFEST"
+
+  # Swap in the completed bundle only once everything above succeeded.
+  rm -rf "${outdir}"
+  mkdir -p "$(dirname "${outdir}")"
+  mv "${staged}" "${outdir}"
 
   echo "==> ${impl}: wrote ${count} keys to files/builder-keys/${impl}/"
   du -sh "${outdir}" | awk '{print "    size: " $1}'

@@ -1,0 +1,28 @@
+# Re-run the role changing only the configuration, with the version unchanged.
+#
+# This is the path that a fresh-install test never reaches and that the upgrade
+# scenario does not isolate, because there the service is stopped and started
+# for the binary swap anyway. Here nothing but bitcoin.conf changes, so the
+# service only picks up the new settings if the restart handler fires before the
+# play ends. verify.yml then asks the running daemon what its user agent is,
+# which proves the change reached the process rather than only the file.
+---
+- name: Change configuration only
+  hosts: all
+  become: true
+
+  vars:
+    bitcoind_network: regtest
+    bitcoind_use_onion: true
+    bitcoind_rpc_auth: "test:a]3a49e54de0048a4bae6de3f3e85c6$6f4c35e75cde9ee37694dcf40a932ea90c05e3a5efd16a6e0c9ae3e0abd1e9b2"
+    bitcoind_implementation: "{{ lookup('env', 'BITCOIND_IMPL') | default('core', true) }}"
+    bitcoind_version: "{{ lookup('env', 'BITCOIND_VERSION') | default('31.1', true) }}"
+    bitcoind_config:
+      dbcache: 512
+      maxconnections: 40
+      # uacomment surfaces in the daemon's user agent over RPC, so a change here
+      # is observable in the running process.
+      uacomment: molecule-reloaded
+      txindex: false
+  roles:
+    - mvrahden.bitcoind

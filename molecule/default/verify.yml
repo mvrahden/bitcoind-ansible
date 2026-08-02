@@ -113,7 +113,8 @@
           # options the role does not expose as named variables
           - "'dbcache=512' in _conf_lines"
           - "'maxconnections=40' in _conf_lines"
-          - "'uacomment=molecule' in _conf_lines"
+          # side_effect.yml changed this from "molecule" after the first converge
+          - "'uacomment=molecule-reloaded' in _conf_lines"
           # bitcoind_config overrides the named variable (default is true)
           - "'txindex=0' in _conf_lines"
           - "'txindex=1' not in _conf_lines"
@@ -130,6 +131,28 @@
         that:
           - "'[' ~ bitcoind_network ~ ']' in (_conf_raw.content | b64decode)"
           - "'bind=127.0.0.1' in (_conf_raw.content | b64decode).split('[' ~ bitcoind_network ~ ']')[1]"
+
+    # The decisive check for a configuration-only change: the file having the
+    # new value proves nothing if the daemon is still running the old one. The
+    # user agent reported over RPC comes from the live process.
+    - name: "Ask the running daemon for its user agent"
+      ansible.builtin.command:
+        cmd: >-
+          bitcoin-cli -datadir={{ bitcoind_data_dir }}
+          -conf={{ bitcoind_data_dir }}/bitcoind.conf
+          -rpcwait -rpcwaittimeout=120 getnetworkinfo
+      register: _netinfo
+      changed_when: false
+
+    - name: "Test the configuration change reached the running process"
+      ansible.builtin.assert:
+        that:
+          - "'molecule-reloaded' in (_netinfo.stdout | from_json).subversion"
+        fail_msg: >-
+          The daemon reports subversion
+          "{{ (_netinfo.stdout | from_json).subversion }}", which does not carry
+          the uacomment set by side_effect.yml. The config file was updated but
+          the service was not restarted before the play ended.
 
     - name: "Check symlink"
       ansible.builtin.stat:

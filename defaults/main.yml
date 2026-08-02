@@ -72,6 +72,11 @@ bitcoind_data_dir: /data/bitcoin
 bitcoind_network: main
 bitcoind_bind: 127.0.0.1
 
+# Suppress Ansible output for the config template task, which would otherwise
+# echo the rpcauth hash. Set to false to preview a config change with
+# --check --diff, accepting that the hash appears in the output.
+bitcoind_no_log: true
+
 # Bitcoin RPC server auth data (required — no default for security).
 # Generate with: python3 share/rpcauth/rpcauth.py <username>
 # The output line "rpcauth=..." goes here (without the "rpcauth=" prefix).

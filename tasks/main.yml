@@ -314,8 +314,9 @@
     owner: "{{ bitcoind_user }}"
     group: "{{ bitcoind_group }}"
 
-# Fix #4: mode 0640 — config contains rpcauth hash
-# Fix #10: no_log — prevent rpcauth from leaking into Ansible output
+# mode 0640 and no_log because the file carries the rpcauth hash. Set
+# bitcoind_no_log=false to inspect a rendered change with --check --diff; the
+# credential hash becomes visible in the output when you do.
 - name: "Bitcoind | Copy bitcoin.conf file into '{{ bitcoind_data_dir }}/bitcoind.conf'"
   ansible.builtin.template:
     src: bitcoin.conf.j2
@@ -323,9 +324,17 @@
     owner: "{{ bitcoind_user }}"
     group: "{{ bitcoind_group }}"
     mode: "0640"
-  no_log: true
+  no_log: "{{ bitcoind_no_log | bool }}"
   notify:
     - Bitcoind | Ensure bitcoind systemd unit is restarted
+
+# Handlers otherwise run at the end of the play, which would put the restart
+# after the health check and after the version cookie is written. A broken
+# config would then be reported healthy, the cookie would record success, and
+# only then would the restart fail. Flushing here means the health check below
+# tests the configuration that is actually running.
+- name: Bitcoind | Apply pending service restarts before checking health
+  ansible.builtin.meta: flush_handlers
 
 - name: "Bitcoind | Ensure 'bitcoind-{{ bitcoind_network }}.service' systemd unit is enabled and started"
   ansible.builtin.systemd:
@@ -349,7 +358,11 @@
       -getinfo
   register: _bitcoind_rpc_ready
   changed_when: false
-  when: bitcoind_health_check | bool
+  # Nothing to ask when the RPC server is switched off, whether through the
+  # named variable or an override in bitcoind_config.
+  when:
+    - bitcoind_health_check | bool
+    - bitcoind_config.server | default(bitcoind_server) | bool
 
 - name: "Bitcoind | Ensure version cookie file set"
   ansible.builtin.template:
