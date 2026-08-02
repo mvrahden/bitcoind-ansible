@@ -5,28 +5,23 @@
   gather_facts: false
   vars:
     bitcoind_implementation: "{{ lookup('env', 'BITCOIND_IMPL') | default('core', true) }}"
-    bitcoind_version: "{{ lookup('env', 'BITCOIND_VERSION') | default('30.2', true) }}"
+    bitcoind_version: "{{ lookup('env', 'BITCOIND_VERSION') | default('31.1', true) }}"
     bitcoind_data_dir: /data/bitcoin
     bitcoind_user: bitcoin
     bitcoind_group: bitcoin
     bitcoind_network: regtest
-    # Core 30.x: bitcoin wrapper replaces test_bitcoin
-    # Knots 29.x: still has test_bitcoin, no bitcoin wrapper
-    _core_binaries:
+    # The whitelist default, with the wallet disabled as it is by default.
+    _expected_binaries:
+      - bitcoind
+      - bitcoin-cli
+    # Everything else either implementation ships. None of it should be present,
+    # whether because it was never installed or because cleanup removed it.
+    _unexpected_binaries:
       - bitcoin
-      - bitcoin-cli
       - bitcoin-qt
       - bitcoin-tx
       - bitcoin-util
       - bitcoin-wallet
-      - bitcoind
-    _knots_binaries:
-      - bitcoin-cli
-      - bitcoin-qt
-      - bitcoin-tx
-      - bitcoin-util
-      - bitcoin-wallet
-      - bitcoind
       - test_bitcoin
 
   tasks:
@@ -34,7 +29,7 @@
       ansible.builtin.stat:
         path: "/usr/local/bin/{{ item }}"
       register: bitcoind_bins
-      with_items: "{{ _core_binaries if bitcoind_implementation == 'core' else _knots_binaries }}"
+      with_items: "{{ _expected_binaries }}"
 
     - name: "Test that binaries were copied correctly for Bitcoin v{{ bitcoind_version }}"
       ansible.builtin.assert:
@@ -45,6 +40,33 @@
           - item.stat.gr_name == 'root'
           - item.stat.mode == '0755'
       with_items: "{{ bitcoind_bins.results }}"
+
+    - name: "Retrieve information about binaries outside the whitelist"
+      ansible.builtin.stat:
+        path: "/usr/local/bin/{{ item }}"
+      register: _unexpected_stat
+      with_items: "{{ _unexpected_binaries }}"
+
+    - name: "Test that binaries outside the whitelist are absent"
+      ansible.builtin.assert:
+        that:
+          - not item.stat.exists
+        fail_msg: >-
+          {{ item.item }} is present in /usr/local/bin but is not in
+          bitcoind_install_binary_groups.
+      with_items: "{{ _unexpected_stat.results }}"
+
+    # The point of the wrapper is that an operator needs no flags at all.
+    - name: "Test the bitcoin-cli wrapper works with no arguments"
+      ansible.builtin.command:
+        cmd: "/usr/local/bin/bitcoin-cli-{{ bitcoind_network }} -rpcwait -rpcwaittimeout=120 getblockchaininfo"
+      register: _wrapper_out
+      changed_when: false
+
+    - name: "Test the wrapper reached the right chain"
+      ansible.builtin.assert:
+        that:
+          - (_wrapper_out.stdout | from_json).chain == bitcoind_network
 
     - name: "Check systemd service is running"
       ansible.builtin.systemd:
@@ -95,6 +117,64 @@
           - _cookie_stat.stat.exists
           - _cookie_stat.stat.pw_name == bitcoind_user
           - _cookie_stat.stat.gr_name == bitcoind_group
+
+    - name: "Read generated bitcoin.conf"
+      ansible.builtin.slurp:
+        src: "{{ bitcoind_data_dir }}/bitcoind.conf"
+      register: _conf_raw
+
+    - name: "Parse bitcoin.conf into keys"
+      ansible.builtin.set_fact:
+        _conf_lines: >-
+          {{ (_conf_raw.content | b64decode).splitlines()
+             | map('trim') | select('search', '^[a-z]') | list }}
+
+    - name: "Test bitcoind_config passthrough and override semantics"
+      ansible.builtin.assert:
+        that:
+          # options the role does not expose as named variables
+          - "'dbcache=512' in _conf_lines"
+          - "'maxconnections=40' in _conf_lines"
+          # side_effect.yml changed this from "molecule" after the first converge
+          - "'uacomment=molecule-reloaded' in _conf_lines"
+          # bitcoind_config overrides the named variable (default is true)
+          - "'txindex=0' in _conf_lines"
+          - "'txindex=1' not in _conf_lines"
+          # booleans render as 1/0, not True/False
+          - _conf_lines | select('search', '=(True|False)$') | list | length == 0
+          # every key appears exactly once
+          - >-
+            _conf_lines | map('regex_replace', '=.*$', '') | list | length
+            == _conf_lines | map('regex_replace', '=.*$', '') | unique | list | length
+        fail_msg: "Rendered config: {{ _conf_lines }}"
+
+    - name: "Test network-scoped options are in the [{{ bitcoind_network }}] section"
+      ansible.builtin.assert:
+        that:
+          - "'[' ~ bitcoind_network ~ ']' in (_conf_raw.content | b64decode)"
+          - "'bind=127.0.0.1' in (_conf_raw.content | b64decode).split('[' ~ bitcoind_network ~ ']')[1]"
+
+    # The decisive check for a configuration-only change: the file having the
+    # new value proves nothing if the daemon is still running the old one. The
+    # user agent reported over RPC comes from the live process.
+    - name: "Ask the running daemon for its user agent"
+      ansible.builtin.command:
+        cmd: >-
+          bitcoin-cli -datadir={{ bitcoind_data_dir }}
+          -conf={{ bitcoind_data_dir }}/bitcoind.conf
+          -rpcwait -rpcwaittimeout=120 getnetworkinfo
+      register: _netinfo
+      changed_when: false
+
+    - name: "Test the configuration change reached the running process"
+      ansible.builtin.assert:
+        that:
+          - "'molecule-reloaded' in (_netinfo.stdout | from_json).subversion"
+        fail_msg: >-
+          The daemon reports subversion
+          "{{ (_netinfo.stdout | from_json).subversion }}", which does not carry
+          the uacomment set by side_effect.yml. The config file was updated but
+          the service was not restarted before the play ended.
 
     - name: "Check symlink"
       ansible.builtin.stat:

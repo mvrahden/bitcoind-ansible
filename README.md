@@ -2,27 +2,36 @@
 
 ![GitHub Workflow Status (with branch)](https://img.shields.io/github/actions/workflow/status/mvrahden/bitcoind-ansible/ansible.yml?branch=main&label=Ansible%20Tests&logo=github&style=for-the-badge)
 
-Ansible role to install [Bitcoin Core](https://bitcoincore.org/en/about/) or [Bitcoin Knots](https://bitcoinknots.org/) as a `systemd` service. By default,
-it uses sane defaults and some hardening measures for the Systemd service.
+Ansible role to install [Bitcoin Core](https://bitcoincore.org/en/about/) or
+[Bitcoin Knots](https://bitcoinknots.org/) as a `systemd` service, with verified
+binaries and a hardened unit.
 
 ## Summary: What does it do?
 
-- Sets up user, if not single user system
-- Downloads bitcoin binaries and verifies GPG signatures
-- Installs all shipped binaries to `/usr/local/bin` (i.e. `bitcoin-cli`, `bitcoind`, ...)
-- Sets up a systemd service with configuration at `<data_dir>/bitcoind.conf`
+- Downloads the release and verifies it against a threshold of trusted builder signatures
+- Installs only the binaries a headless node needs, and removes any others it finds
+- Adds a `bitcoin-cli-<network>` wrapper so operator commands need no flags
+- Creates a dedicated service account with a `nologin` shell
+- Sets up a hardened systemd service with configuration at `<data_dir>/bitcoind.conf`
 - Links `/home/<user>/.bitcoin` to `<data_dir>`
+- Confirms the daemon answers over RPC before reporting success
 
 ## Requirements
 
-This role requires a user with `sudo` permissions to work properly.
-
-List of officially supported operating systems:
+A Debian-family target and a user with `sudo` permissions.
 
 | ID           | Name         | Status             |
 | ------------ | ------------ | ------------------ |
-| `ubuntu2004` | Ubuntu 20.04 | :white_check_mark: |
+| `debian12`   | Debian 12    | :white_check_mark: |
+| `debian13`   | Debian 13    | :white_check_mark: |
 | `ubuntu2204` | Ubuntu 22.04 | :white_check_mark: |
+| `ubuntu2404` | Ubuntu 24.04 | :white_check_mark: |
+
+Install the collection this role depends on:
+
+```bash
+ansible-galaxy install -r requirements.yml
+```
 
 ## How to run this?
 
@@ -35,6 +44,28 @@ List of officially supported operating systems:
     - role: mvrahden.bitcoind
 ```
 
+That is the whole thing. RPC answers on loopback, and local clients — the
+health check, the `bitcoin-cli` wrapper, an indexer on the same host —
+authenticate with the cookie file Bitcoin Core writes on every start.
+
+You only need a credential once RPC should answer other hosts, which means a
+non-loopback `bitcoind_rpc_bind` *and* a non-loopback entry in
+`bitcoind_rpc_allow_ips`. Generate one with
+[rpcauth.py](https://raw.githubusercontent.com/bitcoin/bitcoin/master/share/rpcauth/rpcauth.py)
+and pass the value after `rpcauth=`; the role refuses to expose RPC without it,
+since remote clients cannot read this host's cookie.
+
+```yaml
+- hosts: bitcoind
+  become: yes
+  vars:
+    bitcoind_rpc_bind: 0.0.0.0
+    bitcoind_rpc_allow_ips: [10.0.0.0/8]
+    bitcoind_rpc_auth: "alice:f7efda5c189b...$d5b51b3beffbc02b..."
+  roles:
+    - role: mvrahden.bitcoind
+```
+
 ### Bitcoin Knots
 
 ```yaml
@@ -42,82 +73,125 @@ List of officially supported operating systems:
   become: yes
   vars:
     bitcoind_implementation: knots
-    bitcoind_version: "29.2.knots20251110"
+    bitcoind_version: "29.3.knots20260508"
   roles:
     - role: mvrahden.bitcoind
 ```
 
-Note that you can use `become` at a global level instead at the role level.
-If you want to install the Bitcoin node into a Raspberry Pi, just change the architecture:
+Architecture is detected automatically, so a Raspberry Pi needs no special
+handling. Set `bitcoind_arch` only to override detection, for example when
+building for a different target than the host.
 
-```yaml
-- hosts: bitcoind
-  become: yes
-  vars:
-    bitcoind_arch: aarch64-linux-gnu
-  roles:
-    - role: mvrahden.bitcoind
-```
+## Operating the node
 
-### Testing
-
-You can execute tests using `molecule`. Install the [`requirements.txt`](molecule) file depending on if you want
-to execute tests through Docker or with a VM managed by Vagrant.
+The role installs `bitcoin-cli-<network>`, which calls `bitcoin-cli` with this
+node's data directory and configuration already filled in:
 
 ```bash
-make test                                                              # Core (default)
-BITCOIND_IMPL=knots BITCOIND_VERSION=29.2.knots20251110 make test      # Knots
+sudo bitcoin-cli-main getblockchaininfo
+sudo bitcoin-cli-main -netinfo
 ```
 
-If you want to run a test through a specific operating system you can update the `DISTRO` variable using
-the operating system ID mentioned in the requirements table.
+`sudo` is needed because authentication uses the cookie file the daemon writes,
+which only the service account can read. To reach the node as an ordinary user,
+pass RPC credentials instead:
 
-### Variables
+```bash
+bitcoin-cli -rpcconnect=127.0.0.1 -rpcport=8332 \
+  -rpcuser=alice -rpcpassword=... getblockchaininfo
+```
 
-You can change some variables to install this role to fit your needs. The default values to install the
-Bitcoin node are the following ones:
+The role also links `<data_dir>/bitcoin.conf` to the managed config, so tools
+that expect the standard filename work with `-datadir=<data_dir>` alone. If a
+real `bitcoin.conf` is already there it is left untouched and the role says so.
 
-| Name                      | Value              | Note                                    |
-| ------------------------- | ------------------ | --------------------------------------- |
-| `bitcoind_implementation` | `core`             | `core` or `knots`                       |
-| `bitcoind_version`        | `30.2`             | Knots example: `29.2.knots20251110`     |
-| `bitcoind_user`           | `bitcoin`          |                                         |
-| `bitcoind_group`          | `bitcoin`          |                                         |
-| `bitcoind_arch`           | _(auto-detected)_  | Override for cross-platform deploys     |
+Set `bitcoind_install_cli_wrapper: false` to skip the wrapper.
 
-> Architecture is auto-detected from `ansible_architecture`. Override with e.g. `aarch64-linux-gnu` for Raspberry Pi.
+### Which binaries get installed
 
-To configure the Bitcoin node, you can use the following variables:
+A release tarball carries far more than a headless node runs, so the role
+installs by group:
 
-> Use [rpcauth.py](https://raw.githubusercontent.com/bitcoin/bitcoin/master/share/rpcauth/rpcauth.py) to
-> generate `rpcauth` credentials.
+| Group | Binaries | |
+| --- | --- | --- |
+| `node` | `bitcoind` | the daemon |
+| `cli` | `bitcoin-cli` | what the health check and wrapper use |
+| `wallet` | `bitcoin-wallet` | offline wallet file tool |
+| `tools` | `bitcoin`, `bitcoin-tx`, `bitcoin-util` | offline transaction and key work |
+| `gui` | `bitcoin-qt` | cannot run headless, see below |
+| `test` | `test_bitcoin`, `bench_bitcoin` | Knots only; Core dropped these at 30.x |
 
-| Name                          | Value           | Note                                                  |
-| ----------------------------- | --------------- | ----------------------------------------------------- |
-| `bitcoind_data_dir`           | `/data/bitcoin` |                                                       |
-| `bitcoind_network`            | `main`          | Valid values are: `main`, `regtest`, `signet`, `test` |
-| `bitcoind_server`             | `true`          | Enable JSON-RPC server                                |
-| `bitcoind_disablewallet`      | `true`          | Disable wallet (enable only if needed)                |
-| `bitcoind_txindex`            | `true`          | Maintain full transaction index                       |
-| `bitcoind_listen`             | `true`          | Listen for incoming peer connections                  |
-| `bitcoind_whitelist`          | `127.0.0.1`     | Whitelist address (empty to disable)                  |
-| `bitcoind_rpc_auth`           |                 | Required. Generate with `rpcauth.py`                  |
-| `bitcoind_rpc_bind`           | `127.0.0.1`     | Address to expose the RPC server                      |
-| `bitcoind_rpc_port`           | `8332`          |                                                       |
-| `bitcoind_rpc_allow_ips`      | `[127.0.0.1]`   | IP or range like `10.0.0.0/24`                        |
-| `bitcoind_bind`               | `127.0.0.1`     |                                                       |
-| `bitcoind_enable_zmq`         | `false`         | Enable ZMQ pub/sub endpoints                          |
-| `bitcoind_zmq_host`           | `127.0.0.1`     |                                                       |
-| `bitcoind_zmq_port_rawblock`  | `28332`         |                                                       |
-| `bitcoind_zmq_port_rawtx`     | `28333`         |                                                       |
-| `bitcoind_zmq_port_hashblock` | `28332`         |                                                       |
-| `bitcoind_proxy`              |                 | SOCKS5 proxy (e.g. `127.0.0.1:9050` for Tor)          |
-| `bitcoind_use_onion`          | `false`         | Restrict to onion network only                        |
-| `bitcoind_nodes`              | `[]`            | Peers to add via `addnode=`                           |
+```yaml
+bitcoind_install_binary_groups:
+  - node
+  - cli
+  - tools
+```
+
+The default is `[node, cli]`, roughly 20 MB installed against 81 MB for Core
+31.1 and 107.5 MB for Knots 29.3 if everything were copied.
+
+A group installs whichever of its binaries the release actually ships, so the
+same setting works for both Core and Knots and across versions, and a binary
+added by a future release arrives with its group instead of needing a config
+change. Multiprocess builds are handled the same way: `bitcoin-node` and
+`bitcoin-gui` belong to `node` and `gui` and are installed when present.
+
+For finer control, name binaries individually. Unlike a group, these must exist
+in the release — asking for one it does not ship fails the run and lists what it
+does:
+
+```yaml
+bitcoind_install_binary_groups: [node, cli]
+bitcoind_install_extra_binaries: [bitcoin-tx]   # tools, without the rest of it
+```
+
+Note that `wallet` is not implied by enabling the wallet. `bitcoin-wallet` is an
+*offline* tool for creating and repairing wallet files; a node with the wallet
+enabled manages wallets over RPC and does not need it.
+
+**The role also removes Bitcoin binaries you have not selected**, so narrowing
+the selection, or upgrading from a version of this role that installed
+everything, cleans up rather than leaving dead weight behind. Removal is bounded
+to the binaries these groups name — `/usr/local/bin` belongs to you, and nothing
+else in it is touched.
+
+`bitcoin-qt` deserves a warning if you add `gui`: it cannot run on a headless
+target. On a clean Debian 12 it fails to resolve `libfontconfig.so.1` and
+`libfreetype.so.6` for Core, and seventeen libraries including the whole X11/xcb
+stack for Knots, while `bitcoind` resolves everything it needs. You would need to
+install those libraries yourself.
+
+## Configuration
+
+The role exposes the common options as named variables. **Anything else goes in
+`bitcoind_config`**, which is applied last and overrides the named variables.
+This reaches every `bitcoin.conf` option, so you never need to fork the role to
+set one.
+
+```yaml
+bitcoind_config:
+  prune: 550
+  dbcache: 2048
+  maxconnections: 40
+  blockfilterindex: true
+  uacomment: my-node
+```
+
+Booleans render as `1`/`0`, lists render as repeated keys, and empty values are
+omitted. Every key is emitted exactly once.
 
 ### Use-case examples
 
-The defaults provide a minimal-surface full node. Enable additional features as needed:
+The defaults give a minimal-surface full node. Enable what you need:
+
+**Pruned node** (smallest disk footprint; incompatible with the indexes)
+
+```yaml
+bitcoind_txindex: false
+bitcoind_config:
+  prune: 550
+```
 
 **Lightning node (LND / CLN)**
 
@@ -133,11 +207,24 @@ bitcoind_enable_zmq: true  # required for real-time block notifications
 bitcoind_txindex: true     # required for address lookups
 ```
 
-**Tor-only (requires a running Tor daemon)**
+**Tor**
+
+Routes traffic through Tor and publishes an onion address. The role does not
+install or configure Tor; it must already be running with:
+
+```
+ControlPort 127.0.0.1:9051
+CookieAuthentication 1
+CookieAuthFileGroupReadable 1
+```
+
+The last line is easy to miss. Without it Tor writes its control cookie mode
+`0600`, so membership of `debian-tor` does not help and no onion address is
+published.
 
 ```yaml
-bitcoind_proxy: "127.0.0.1:9050"
-bitcoind_use_onion: true
+bitcoind_tor_enabled: true
+bitcoind_use_onion: true   # optional: reach *only* onion peers
 ```
 
 **On-node wallet**
@@ -146,34 +233,129 @@ bitcoind_use_onion: true
 bitcoind_disablewallet: false
 ```
 
-### GPG verification
+### Variables
 
-By default, this installer uses `gpg` to verify the integrity and signature of the downloaded artifacts.
-The role selects the appropriate GPG builder keys based on `bitcoind_implementation`.
+| Name                      | Default              | Note                                |
+| ------------------------- | -------------------- | ----------------------------------- |
+| `bitcoind_implementation` | `core`               | `core` or `knots`                   |
+| `bitcoind_version`        | `31.1`               | Knots example: `29.3.knots20260508` |
+| `bitcoind_user`           | `bitcoin`            |                                     |
+| `bitcoind_group`          | `bitcoin`            |                                     |
+| `bitcoind_arch`           | _(auto-detected)_    | Override for cross-platform deploys |
+| `bitcoind_install_binary_groups` | `[node, cli]` | `node`, `cli`, `wallet`, `tools`, `gui`, `test` |
+| `bitcoind_install_extra_binaries` | `[]` | Individual binaries alongside the groups |
+| `bitcoind_install_cli_wrapper` | `true`            | Install `bitcoin-cli-<network>`     |
 
-**Bitcoin Core** default keys (`bitcoind_pgp_builders_pub_key_core`):
+Node configuration:
 
-| Name       | ID                                         |
-| ---------- | ------------------------------------------ |
-| `laanwj`   | `71A3B16735405025D447E8F274810B012346C9A6` |
-| `fanquake` | `E777299FC265DD04793070EB944D35F9AC3DB76A` |
+| Name                          | Default         | Note                                                  |
+| ----------------------------- | --------------- | ----------------------------------------------------- |
+| `bitcoind_config`             | `{}`            | **Any `bitcoin.conf` option; overrides the below**    |
+| `bitcoind_network_config`     | `{}`            | Options scoped to the active network                  |
+| `bitcoind_data_dir`           | `/data/bitcoin` |                                                       |
+| `bitcoind_network`            | `main`          | Valid values are: `main`, `regtest`, `signet`, `test` |
+| `bitcoind_server`             | `true`          | Enable JSON-RPC server                                |
+| `bitcoind_disablewallet`      | `true`          | Disable wallet (enable only if needed)                |
+| `bitcoind_txindex`            | `true`          | Maintain full transaction index                       |
+| `bitcoind_listen`             | `true`          | Listen for incoming peer connections                  |
+| `bitcoind_whitelist`          | `127.0.0.1`     | Whitelist address (empty to disable)                  |
+| `bitcoind_rpc_auth`           | _(cookie auth)_ | Only needed when RPC is reachable remotely            |
+| `bitcoind_rpc_bind`           | `127.0.0.1`     | Address to expose the RPC server                      |
+| `bitcoind_rpc_port`           | `8332`          |                                                       |
+| `bitcoind_rpc_allow_ips`      | `[127.0.0.1]`   | IP or range like `10.0.0.0/24`                        |
+| `bitcoind_bind`               | `127.0.0.1`     |                                                       |
+| `bitcoind_enable_zmq`         | `false`         | Enable ZMQ pub/sub endpoints                          |
+| `bitcoind_zmq_host`           | `127.0.0.1`     |                                                       |
+| `bitcoind_zmq_port_rawblock`  | `28332`         |                                                       |
+| `bitcoind_zmq_port_rawtx`     | `28333`         |                                                       |
+| `bitcoind_zmq_port_hashblock` | `28332`         |                                                       |
+| `bitcoind_proxy`              |                 | SOCKS5 proxy (e.g. `127.0.0.1:9050`)                  |
+| `bitcoind_use_onion`          | `false`         | Restrict to onion network only                        |
+| `bitcoind_nodes`              | `[]`            | Peers to add via `addnode=`                           |
+| `bitcoind_health_check`       | `true`          | Confirm RPC responds after start                      |
+| `bitcoind_no_log`             | `true`          | `false` to preview config with `--check --diff`       |
+| `bitcoind_rpc_wait_timeout`   | `120`           | Seconds to wait for RPC                               |
 
-**Bitcoin Knots** default keys (`bitcoind_pgp_builders_pub_key_knots`):
+Tor:
 
-| Name      | ID                                         |
-| --------- | ------------------------------------------ |
-| `luke-jr` | `1A3E761F19D2CC7785C5502EA291A2C45D0C504A` |
-| `shiny`   | `1D70CBE4B42239445617D33DD316C8140185B647` |
+| Name                         | Default           | Note                                    |
+| ---------------------------- | ----------------- | --------------------------------------- |
+| `bitcoind_tor_enabled`       | `false`           | Wire up proxy, `listenonion`, control   |
+| `bitcoind_tor_proxy`         | `127.0.0.1:9050`  |                                         |
+| `bitcoind_tor_control`       | `127.0.0.1:9051`  |                                         |
+| `bitcoind_tor_control_group` | `debian-tor`      | Group owning Tor's control cookie       |
 
-If you only want to verify with one user, you can override the list for the respective implementation:
+Verification:
 
-```yaml
-bitcoind_pgp_builders_pub_key_core:
-  - id: 71A3B16735405025D447E8F274810B012346C9A6
-    name: laanwj
+| Name                                | Default | Note                                            |
+| ----------------------------------- | ------- | ----------------------------------------------- |
+| `bitcoind_gpg_min_valid_signatures` | `3`     | Distinct trusted signatures required            |
+| `bitcoind_gpg_trusted_fingerprints` | `[]`    | Empty trusts all bundled keys                   |
+| `bitcoind_gpg_allow_expired_keys`   | `false` | Count signatures from since-expired keys        |
+| `bitcoind_skip_gpg_verification`    | `false` | Bypass verification entirely (discouraged)      |
+
+## Binary verification
+
+Bitcoin releases are signed by a number of builders who independently reproduce
+the build and attest to identical hashes. The role downloads `SHA256SUMS` and
+`SHA256SUMS.asc`, verifies the signatures against the builder keys bundled in
+`files/builder-keys/`, and installs only if at least
+`bitcoind_gpg_min_valid_signatures` distinct trusted builders signed it. The
+binary is then checked against the checksum from that verified file.
+
+Signatures from revoked keys, and checksum files that fail verification outright,
+abort the install regardless of how many other signatures are good. Signatures
+from since-expired keys are reported but do not count toward the threshold unless
+`bitcoind_gpg_allow_expired_keys` is set.
+
+The default of 3 matches Bitcoin Core's own
+[`contrib/verify-binaries`](https://github.com/bitcoin/bitcoin/tree/master/contrib/verify-binaries)
+tooling. Requiring a threshold rather than specific named signers matters:
+attestation is voluntary, and which builders sign changes from release to
+release.
+
+Keys come from the upstream
+[Core](https://github.com/bitcoin-core/guix.sigs/tree/main/builder-keys) and
+[Knots](https://github.com/bitcoinknots/guix.sigs/tree/knots/builder-keys)
+guix.sigs repositories and are bundled rather than fetched at install time, so a
+blocked or unavailable keyserver cannot break a deploy. Refresh them with:
+
+```bash
+scripts/update-builder-keys.sh
 ```
 
-> Guix attestations are used to verify each release. The data can be found in the
-> [Bitcoin Core](https://github.com/bitcoin-core/guix.sigs) or
-> [Bitcoin Knots](https://github.com/bitcoinknots/guix.sigs) guix.sigs repositories.
-> If the release can't be trusted the role will fail the installation.
+To trust only specific builders, list their primary key fingerprints:
+
+```yaml
+bitcoind_gpg_trusted_fingerprints:
+  - E777299FC265DD04793070EB944D35F9AC3DB76A  # fanquake
+bitcoind_gpg_min_valid_signatures: 1
+```
+
+## Upgrading
+
+Change `bitcoind_version` and re-run. The role tracks the installed version in a
+cookie file in the data directory, stops the service, swaps the binaries, and
+restarts. Runs where the version is unchanged make no changes at all.
+
+## Testing
+
+Tests run with `molecule` in Docker:
+
+```bash
+make test                                                                    # Core, Debian 12
+make test DISTRO=debian13 BITCOIND_IMPL=knots BITCOIND_VERSION=29.3.knots20260508
+make test SCENARIO=upgrade BITCOIND_VERSION_FROM=31.0 BITCOIND_VERSION_TO=31.1
+make lint
+```
+
+Use any ID from the requirements table as `DISTRO`.
+
+## Migrating from 1.x
+
+Most playbooks need one small edit or none at all. The generated `bitcoin.conf`
+is semantically identical to 1.x for every variable combination but one, and the
+data directory is untouched.
+
+See **[docs/MIGRATION-2.0.md](docs/MIGRATION-2.0.md)** for the full guide, and
+[CHANGELOG.md](CHANGELOG.md) for the complete change list.

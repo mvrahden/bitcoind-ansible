@@ -3,11 +3,26 @@
   ansible.builtin.set_fact:
     _bitcoind_change_version: false # default
 
+- name: Bitcoind | Validate the target OS family is supported
+  ansible.builtin.fail:
+    msg: >-
+      This role manages packages with apt and supports Debian-family systems
+      only, but ansible_os_family is "{{ ansible_os_family }}".
+  when: ansible_os_family != 'Debian'
+
+# Previously anything that was not aarch64 fell through to x86_64, which
+# silently installed wrong-architecture binaries on 32-bit ARM and riscv64.
 - name: Bitcoind | Auto-detect architecture
   ansible.builtin.set_fact:
-    bitcoind_arch: >-
-      {{ 'aarch64-linux-gnu' if ansible_architecture == 'aarch64'
-         else 'x86_64-linux-gnu' }}
+    bitcoind_arch: "{{ _bitcoind_arch_map[ansible_architecture] | default('') }}"
+  when: bitcoind_arch | length == 0
+
+- name: Bitcoind | Validate architecture is supported
+  ansible.builtin.fail:
+    msg: >-
+      Unsupported architecture "{{ ansible_architecture }}". Bitcoin publishes
+      Linux builds for {{ _bitcoind_arch_map.keys() | join(', ') }}.
+      Set bitcoind_arch explicitly to override detection.
   when: bitcoind_arch | length == 0
 
 - name: Bitcoind | Validate implementation is supported
@@ -18,49 +33,161 @@
 
 - name: Bitcoind | Set implementation-specific facts
   ansible.builtin.set_fact:
-    _bitcoind_pgp_builders: >-
-      {{ bitcoind_pgp_builders_pub_key_core
-         if bitcoind_implementation == 'core'
-         else bitcoind_pgp_builders_pub_key_knots }}
     _bitcoind_base_url: >-
       {{ 'https://bitcoincore.org/bin/bitcoin-core-' ~ bitcoind_version
          if bitcoind_implementation == 'core'
          else 'https://bitcoinknots.org/files/' ~ bitcoind_version.split('.')[0] ~ '.x/' ~ bitcoind_version }}
-    _bitcoind_guix_sigs_base_url: >-
-      {{ 'https://raw.githubusercontent.com/bitcoin-core/guix.sigs/main'
-         if bitcoind_implementation == 'core'
-         else 'https://raw.githubusercontent.com/bitcoinknots/guix.sigs/knots' }}
 
-# Fix #2: GPG verification must be explicitly configured or explicitly skipped
-- name: Bitcoind | Validate GPG verification is configured
+# Removed in 2.0.0. These pinned verification to specific named signers, which
+# breaks on any release those signers did not attest to.
+- name: Bitcoind | Warn about removed per-signer verification variables
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: bitcoind_pgp_builders_pub_key_core/_knots are no longer used and
+      are being ignored. Verification now requires
+      bitcoind_gpg_min_valid_signatures distinct signatures from the builder
+      keys bundled in files/builder-keys/. To narrow trust to specific
+      builders, set bitcoind_gpg_trusted_fingerprints instead.
+  when: >-
+    bitcoind_pgp_builders_pub_key_core is defined
+    or bitcoind_pgp_builders_pub_key_knots is defined
+
+# Pruning cannot coexist with the transaction or coinstats indexes. Because
+# txindex defaults to true, enabling pruning otherwise fails at daemon startup
+# with a message that gives no hint about which setting to change.
+- name: Bitcoind | Validate pruning does not conflict with enabled indexes
   ansible.builtin.fail:
     msg: >-
-      GPG builder keys must contain at least one GPG key for binary
-      signature verification. Set bitcoind_skip_gpg_verification=true to bypass
-      (not recommended).
+      prune={{ bitcoind_config.prune }} conflicts with
+      {{ 'txindex' if _bitcoind_effective_txindex else '' }}
+      {{ 'coinstatsindex' if _bitcoind_effective_coinstatsindex else '' }}.
+      A pruned node discards the block data these indexes require. Disable the
+      index (bitcoind_txindex=false) or remove prune from bitcoind_config.
+  vars:
+    _bitcoind_effective_txindex: "{{ bitcoind_config.txindex | default(bitcoind_txindex) | bool }}"
+    _bitcoind_effective_coinstatsindex: "{{ bitcoind_config.coinstatsindex | default(false) | bool }}"
   when:
-    - _bitcoind_pgp_builders | length == 0
-    - not (bitcoind_skip_gpg_verification | default(false) | bool)
+    - (bitcoind_config.prune | default(0) | int) > 0
+    - _bitcoind_effective_txindex or _bitcoind_effective_coinstatsindex
 
-# Fix #3: RPC credential must be provided — no hardcoded default
-- name: Bitcoind | Validate RPC auth is configured
+- name: Bitcoind | Look up the Tor control group
+  ansible.builtin.getent:
+    database: group
+    key: "{{ bitcoind_tor_control_group }}"
+    fail_key: false
+  when:
+    - bitcoind_tor_enabled | bool
+    - bitcoind_tor_control_group | length > 0
+
+- name: Bitcoind | Validate Tor control group exists when Tor is enabled
   ansible.builtin.fail:
     msg: >-
-      bitcoind_rpc_auth must be set. Generate with:
-      python3 share/rpcauth/rpcauth.py <username>
-  when: bitcoind_rpc_auth | default('') | length == 0
+      bitcoind_tor_enabled is set but the group
+      "{{ bitcoind_tor_control_group }}" does not exist, so the daemon cannot
+      read Tor's control authentication cookie and would never publish an onion
+      address. Install Tor, or set bitcoind_tor_control_group to the group that
+      owns its control cookie.
+  when:
+    - bitcoind_tor_enabled | bool
+    - bitcoind_tor_control_group | length > 0
+    - ansible_facts.getent_group[bitcoind_tor_control_group] is not defined
+      or ansible_facts.getent_group[bitcoind_tor_control_group] is none
 
+- name: Bitcoind | Validate the requested binary groups are known
+  ansible.builtin.fail:
+    msg: >-
+      bitcoind_install_binary_groups contains unknown group(s):
+      {{ bitcoind_install_binary_groups | difference(_bitcoind_binary_groups.keys() | list) | join(', ') }}.
+      Valid groups are: {{ _bitcoind_binary_groups.keys() | sort | join(', ') }}.
+  when: bitcoind_install_binary_groups | difference(_bitcoind_binary_groups.keys() | list) | length > 0
+
+- name: Bitcoind | Resolve the selected groups into a set of binaries
+  ansible.builtin.set_fact:
+    _bitcoind_wanted_binaries: >-
+      {{ (bitcoind_install_binary_groups | map('extract', _bitcoind_binary_groups) | flatten
+          + bitcoind_install_extra_binaries) | unique | sort }}
+
+# The authoritative check happens at install time against the unpacked release,
+# but that only runs when the version changes, so a typo could sit unnoticed
+# until the next upgrade. This catches it on every run.
+#
+# A warning rather than a failure, unlike an unknown group name: group names are
+# a closed vocabulary this role defines, whereas binary names are upstream's and
+# can grow. Refusing to proceed on a name this role has not heard of would block
+# a binary a future release adds, for no better reason than that the group table
+# is behind.
+- name: Bitcoind | Warn about individually named binaries this role does not know
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: bitcoind_install_extra_binaries names
+      {{ bitcoind_install_extra_binaries | difference(_bitcoind_binary_groups.values() | flatten) | join(', ') }},
+      which is not a binary Bitcoin Core or Knots is known to ship. Check for a
+      typo. If the release really does provide it, installation will succeed and
+      only this warning is wrong.
+  when: bitcoind_install_extra_binaries | difference(_bitcoind_binary_groups.values() | flatten) | length > 0
+
+- name: Bitcoind | Report the binaries that will be installed
+  ansible.builtin.debug:
+    msg: >-
+      Selected groups {{ bitcoind_install_binary_groups | join(', ') }}
+      resolve to: {{ _bitcoind_wanted_binaries | join(', ') }}
+      (whichever of these the release ships).
+
+- name: Bitcoind | Validate the selection covers what the role needs
+  ansible.builtin.fail:
+    msg: >-
+      The selected binaries must include "bitcoind", and must include
+      "bitcoin-cli" while
+      {{ 'bitcoind_health_check' if bitcoind_health_check | bool else 'bitcoind_install_cli_wrapper' }}
+      is enabled, because both talk to the node through it. The "node" and "cli"
+      groups provide them. Currently selected:
+      {{ _bitcoind_wanted_binaries | join(', ') }}.
+  when: >-
+    'bitcoind' not in _bitcoind_wanted_binaries
+    or ('bitcoin-cli' not in _bitcoind_wanted_binaries
+        and (bitcoind_health_check | bool or bitcoind_install_cli_wrapper | bool))
+
+# A node whose RPC only answers on loopback needs no static credential. Bitcoin
+# Core writes a cookie file on every start, and anything that can read it — the
+# health check, the bitcoin-cli wrapper, a local indexer such as electrs —
+# authenticates with that. The cookie rotates on restart and leaves no secret to
+# store or leak, so demanding rpcauth for that case was ceremony.
+#
+# It becomes necessary once RPC is reachable from elsewhere, because a remote
+# client cannot read a file on this host. That needs both a non-loopback
+# rpcbind, so the server listens somewhere reachable, and a non-loopback
+# rpcallowip, so it accepts those clients; either alone leaves RPC local.
+- name: Bitcoind | Validate RPC auth is configured when RPC is reachable remotely
+  ansible.builtin.fail:
+    msg: >-
+      RPC is exposed beyond loopback (rpcbind={{ _bitcoind_rpc_bind_effective }},
+      rpcallowip={{ _bitcoind_rpc_allow_remote | join(', ') }}) but
+      bitcoind_rpc_auth is empty. Remote clients cannot read this host's cookie
+      file, so none of them could authenticate. Generate a credential with
+      share/rpcauth/rpcauth.py, or keep RPC on loopback and let local clients
+      use the cookie.
+  vars:
+    _bitcoind_rpc_allow_remote: >-
+      {{ [bitcoind_config.rpcallowip | default(bitcoind_rpc_allow_ips)] | flatten
+         | reject('search', _bitcoind_loopback_re) | list }}
+  when:
+    - bitcoind_rpc_auth | default('') | length == 0
+    - _bitcoind_rpc_bind_effective is not search(_bitcoind_loopback_re)
+    - _bitcoind_rpc_allow_remote | length > 0
+
+# dirmngr is no longer needed: builder keys ship with the role rather than
+# being fetched from a keyserver at install time. gpg-agent still is, because
+# gpg 2.x delegates keyring writes to it during --import. Debian's images happen
+# to ship it already; Ubuntu's do not, and the `gpg` package alone does not pull
+# it in.
 - name: Bitcoind | Ensure dependencies are installed
   ansible.builtin.apt:
     update_cache: true
-    name: "{{ item }}"
+    name:
+      - gpg
+      - gpg-agent
     state: present
-  with_items:
-    - gpg
-    - dirmngr
-  when:
-    - _bitcoind_pgp_builders | length > 0
-    - not (bitcoind_skip_gpg_verification | default(false) | bool)
+  when: not (bitcoind_skip_gpg_verification | bool)
 
 - name: "Bitcoind | Ensure group '{{ bitcoind_group }}' exists"
   ansible.builtin.group:
@@ -86,13 +213,10 @@
     state: mounted
   when: bitcoind_data_mount_device | length > 0
 
+# 0750 rather than world-readable: the directory may hold wallet files. Created
+# with its final ownership and mode in one step, so it never exists briefly
+# under the umask default.
 - name: "Bitcoind | Ensure Bitcoin data directory exists ('{{ bitcoind_data_dir }}')"
-  ansible.builtin.file:
-    path: "{{ bitcoind_data_dir }}"
-    state: directory
-
-# Fix #8: Data directory 0750 (not world-readable — may contain wallet files)
-- name: "Bitcoind | Ensure Bitcoin data directory uses the correct permissions ('{{ bitcoind_data_dir }}')"
   ansible.builtin.file:
     path: "{{ bitcoind_data_dir }}"
     state: directory
@@ -100,24 +224,52 @@
     group: "{{ bitcoind_group }}"
     mode: "0750"
 
-- name: "Bitcoind | Load version cookie file"
+# Absent on a first install, which is not an error. Checked with stat rather
+# than a slurp with ignore_errors, so a normal first run does not print a red
+# failure that looks like something went wrong.
+- name: "Bitcoind | Check for the version cookie file"
+  ansible.builtin.stat:
+    path: "{{ bitcoind_data_dir }}/.bitcoind.version"
+  register: _bitcoind_version_cookie_stat
+
+- name: "Bitcoind | Read version cookie file"
   ansible.builtin.slurp:
     src: "{{ bitcoind_data_dir }}/.bitcoind.version"
   register: _bitcoind_version_cookie_file
-  ignore_errors: true
+  when: _bitcoind_version_cookie_stat.stat.exists
 
 - name: "Bitcoind | Determine version change from version cookie vs. configured version"
   ansible.builtin.set_fact:
-    _bitcoind_change_version: "{{ (_bitcoind_version_cookie_file['content'] | b64decode | trim | split('\n') | last) != (bitcoind_version | string) }}"
-  when: "not _bitcoind_version_cookie_file.failed"
+    _bitcoind_change_version: >-
+      {{ (_bitcoind_version_cookie_file['content'] | b64decode | trim).splitlines() | last
+         != (bitcoind_version | string) }}
+  when: _bitcoind_version_cookie_stat.stat.exists
 
 - name: "Bitcoind | Debug detected version change from cookie"
   ansible.builtin.debug:
     msg: "{{ _bitcoind_change_version }}"
 
+# Nothing here can be simulated. --check does not create the staging directory,
+# so the very first task leaves _bitcoind_staging undefined and everything after
+# it fails on a missing attribute rather than reporting what it would do. Report
+# the intent instead and let the rest of the play carry on, so --check --diff
+# remains usable for previewing configuration changes.
+- name: Bitcoind | Report the install that --check cannot simulate
+  ansible.builtin.debug:
+    msg: >-
+      Would download, verify and install Bitcoin
+      {{ bitcoind_implementation }} v{{ bitcoind_version }}
+      ({{ _bitcoind_wanted_binaries | join(', ') }}).
+      Skipped because this is a check-mode run.
+  when:
+    - ansible_check_mode
+    - not _bitcoind_version_cookie_stat.stat.exists or _bitcoind_change_version | bool
+
 # ── Download, verify, and install Bitcoin (only on first install or version change) ──
 - name: Bitcoind | Download, verify, and install Bitcoin
-  when: _bitcoind_version_cookie_file.failed or _bitcoind_change_version | bool
+  when:
+    - not ansible_check_mode
+    - not _bitcoind_version_cookie_stat.stat.exists or _bitcoind_change_version | bool
   block:
     # Fix #5: Secure staging directory (unpredictable path, 0700, root-owned)
     - name: Bitcoind | Create secure staging directory
@@ -137,27 +289,16 @@
         state: directory
         mode: "0700"
 
-    - name: Bitcoind | Configure GPG keyserver
-      ansible.builtin.copy:
-        dest: "{{ _bitcoind_gpg_home }}/dirmngr.conf"
-        content: "keyserver hkps://keys.openpgp.org\n"
-        mode: "0600"
-
     - name: "Bitcoind | Download SHA256SUMS for Bitcoin v{{ bitcoind_version }}"
       ansible.builtin.get_url:
         url: "{{ _bitcoind_base_url }}/SHA256SUMS"
         dest: "{{ _bitcoind_staging.path }}/SHA256SUMS"
+        mode: "0600"
         http_agent: bitcoind-ansible
 
-    - name: "Bitcoind | Verify signature with given keys"
-      ansible.builtin.include_tasks: gpg.yml
-      vars:
-        gpg_user: "{{ item.name }}"
-        gpg_id: "{{ item.id }}"
-      with_items: "{{ _bitcoind_pgp_builders }}"
-      when:
-        - _bitcoind_pgp_builders | length > 0
-        - not (bitcoind_skip_gpg_verification | default(false) | bool)
+    - name: "Bitcoind | Verify SHA256SUMS against trusted builder signatures"
+      ansible.builtin.include_tasks: verify.yml
+      when: not (bitcoind_skip_gpg_verification | bool)
 
     # Fix #1: Extract checksum from the GPG-verified SHA256SUMS (not a fresh HTTP fetch)
     - name: "Bitcoind | Extract verified checksum for bitcoin-{{ bitcoind_version }}-{{ bitcoind_arch }}.tar.gz"
@@ -167,19 +308,32 @@
           {{ _bitcoind_staging.path }}/SHA256SUMS
       register: _bitcoind_verified_checksum
       changed_when: false
-      failed_when: _bitcoind_verified_checksum.stdout | length != 64
+      failed_when: false
+
+    - name: "Bitcoind | Validate a checksum was found for this release and architecture"
+      ansible.builtin.fail:
+        msg: >-
+          No checksum for bitcoin-{{ bitcoind_version }}-{{ bitcoind_arch }}.tar.gz
+          in the verified SHA256SUMS of
+          Bitcoin {{ bitcoind_implementation }} v{{ bitcoind_version }}.
+          This release most likely does not publish a build for
+          {{ bitcoind_arch }}. Check {{ _bitcoind_base_url }}/SHA256SUMS for the
+          architectures it does publish.
+      when: _bitcoind_verified_checksum.stdout | trim | length != 64
 
     - name: "Bitcoind | Download Bitcoin v{{ bitcoind_version }}"
       ansible.builtin.get_url:
         url: "{{ _bitcoind_base_url }}/bitcoin-{{ bitcoind_version }}-{{ bitcoind_arch }}.tar.gz"
         dest: "{{ _bitcoind_staging.path }}/bitcoin-{{ bitcoind_version }}-{{ bitcoind_arch }}.tar.gz"
         checksum: "sha256:{{ _bitcoind_verified_checksum.stdout }}"
+        mode: "0600"
         http_agent: bitcoind-ansible
 
     - name: "Bitcoind | Ensure extraction directory exists"
       ansible.builtin.file:
         path: "{{ _bitcoind_staging.path }}/bitcoin-{{ bitcoind_version }}"
         state: directory
+        mode: "0700"
 
     - name: "Bitcoind | Unpack Bitcoin v{{ bitcoind_version }}"
       ansible.builtin.unarchive:
@@ -199,14 +353,39 @@
         - _bitcoind_systemd_stop.failed
         - "'Could not find the requested service' not in _bitcoind_systemd_stop.msg"
 
+    - name: "Bitcoind | List the binaries this release ships"
+      ansible.builtin.find:
+        paths: "{{ _bitcoind_staging.path }}/bitcoin-{{ bitcoind_version }}/bin"
+        file_type: file
+      register: _bitcoind_release_binaries
+
+    # A group is a best-effort selection, so a member the release does not ship
+    # is simply skipped. A binary named individually is a specific request, so a
+    # missing one is an error rather than a silent omission.
+    - name: "Bitcoind | Validate individually named binaries exist in this release"
+      ansible.builtin.fail:
+        msg: >-
+          bitcoind_install_extra_binaries requests
+          {{ bitcoind_install_extra_binaries | difference(_bitcoind_available) | join(', ') }},
+          which Bitcoin {{ bitcoind_implementation }} v{{ bitcoind_version }} does
+          not ship. It ships: {{ _bitcoind_available | sort | join(', ') }}.
+      vars:
+        _bitcoind_available: "{{ _bitcoind_release_binaries.files | map(attribute='path') | map('basename') | list }}"
+      when: bitcoind_install_extra_binaries | difference(_bitcoind_available) | length > 0
+
+    # Copied individually rather than copying the directory and pruning after,
+    # so nothing unselected is ever written to the target.
     - name: "Bitcoind | Install binaries into '/usr/local/bin/*'"
       ansible.builtin.copy:
-        src: "{{ _bitcoind_staging.path }}/bitcoin-{{ bitcoind_version }}/bin/"
-        dest: /usr/local/bin/
+        src: "{{ _bitcoind_staging.path }}/bitcoin-{{ bitcoind_version }}/bin/{{ item }}"
+        dest: "/usr/local/bin/{{ item }}"
         remote_src: true
         owner: root
         group: root
         mode: "0755"
+      loop: >-
+        {{ _bitcoind_wanted_binaries
+           | intersect(_bitcoind_release_binaries.files | map(attribute='path') | map('basename') | list) }}
 
   always:
     # gpg-agent creates socket files (S.gpg-agent*) that vanish asynchronously
@@ -225,10 +404,37 @@
         state: absent
       when: _bitcoind_staging.path is defined
 
-- name: "Bitcoind | Copy Bitcoin systemd file into '/lib/systemd/system/bitcoind-{{ bitcoind_network }}.service'"
+# Runs on every play, not only when the version changes, so that a node
+# installed by an earlier version of this role, or one whose selection has since
+# been narrowed, has the surplus taken away rather than left behind to rot.
+#
+# Bounded to the binaries the groups know about: /usr/local/bin belongs to the
+# operator, and removing everything unselected would delete unrelated software.
+- name: "Bitcoind | Remove Bitcoin binaries that are not selected"
+  ansible.builtin.file:
+    path: "/usr/local/bin/{{ item }}"
+    state: absent
+  loop: >-
+    {{ _bitcoind_binary_groups.values() | flatten | unique
+       | difference(_bitcoind_wanted_binaries) | sort }}
+
+# /lib/systemd/system belongs to distribution packages. Units generated by an
+# administrator belong in /etc/systemd/system, which also takes precedence, so
+# the old copy is removed first to avoid two units describing the same service.
+- name: "Bitcoind | Remove legacy unit from '/lib/systemd/system'"
+  ansible.builtin.file:
+    path: /lib/systemd/system/bitcoind-{{ bitcoind_network }}.service
+    state: absent
+  notify:
+    - Bitcoind | Ensure bitcoind systemd unit is restarted
+
+- name: "Bitcoind | Copy Bitcoin systemd file into '/etc/systemd/system/bitcoind-{{ bitcoind_network }}.service'"
   ansible.builtin.template:
     src: bitcoind.service.j2
-    dest: /lib/systemd/system/bitcoind-{{ bitcoind_network }}.service
+    dest: /etc/systemd/system/bitcoind-{{ bitcoind_network }}.service
+    owner: root
+    group: root
+    mode: "0644"
   notify:
     - Bitcoind | Ensure bitcoind systemd unit is restarted
 
@@ -240,8 +446,9 @@
     owner: "{{ bitcoind_user }}"
     group: "{{ bitcoind_group }}"
 
-# Fix #4: mode 0640 — config contains rpcauth hash
-# Fix #10: no_log — prevent rpcauth from leaking into Ansible output
+# mode 0640 and no_log because the file carries the rpcauth hash. Set
+# bitcoind_no_log=false to inspect a rendered change with --check --diff; the
+# credential hash becomes visible in the output when you do.
 - name: "Bitcoind | Copy bitcoin.conf file into '{{ bitcoind_data_dir }}/bitcoind.conf'"
   ansible.builtin.template:
     src: bitcoin.conf.j2
@@ -249,9 +456,58 @@
     owner: "{{ bitcoind_user }}"
     group: "{{ bitcoind_group }}"
     mode: "0640"
-  no_log: true
+  no_log: "{{ bitcoind_no_log | bool }}"
   notify:
     - Bitcoind | Ensure bitcoind systemd unit is restarted
+
+# Third-party tooling and bitcoin-cli itself expect <datadir>/bitcoin.conf.
+# Linking it to the managed file means `bitcoin-cli -datadir=<dir>` works
+# without also naming the config.
+- name: "Bitcoind | Check what occupies '{{ bitcoind_data_dir }}/bitcoin.conf'"
+  ansible.builtin.stat:
+    path: "{{ bitcoind_data_dir }}/bitcoin.conf"
+    follow: false
+  register: _bitcoind_std_conf
+
+# Skipped rather than forced when a real file is already there: on a node
+# adopted from a hand-rolled setup that file is the operator's, and replacing
+# it with a link would discard it.
+- name: "Bitcoind | Link '{{ bitcoind_data_dir }}/bitcoin.conf' to the managed config"
+  ansible.builtin.file:
+    src: "{{ bitcoind_data_dir }}/bitcoind.conf"
+    dest: "{{ bitcoind_data_dir }}/bitcoin.conf"
+    state: link
+    owner: "{{ bitcoind_user }}"
+    group: "{{ bitcoind_group }}"
+  when: not _bitcoind_std_conf.stat.exists or _bitcoind_std_conf.stat.islnk
+
+- name: "Bitcoind | Warn that '{{ bitcoind_data_dir }}/bitcoin.conf' is not managed"
+  ansible.builtin.debug:
+    msg: >-
+      {{ bitcoind_data_dir }}/bitcoin.conf already exists as a regular file and
+      has been left alone. Remove it if you want the role to link it to the
+      managed configuration; until then bitcoin-cli will read that file rather
+      than {{ bitcoind_data_dir }}/bitcoind.conf.
+  when:
+    - _bitcoind_std_conf.stat.exists
+    - not _bitcoind_std_conf.stat.islnk
+
+- name: "Bitcoind | Install the bitcoin-cli wrapper for this network"
+  ansible.builtin.template:
+    src: bitcoin-cli-wrapper.j2
+    dest: "/usr/local/bin/bitcoin-cli-{{ bitcoind_network }}"
+    owner: root
+    group: root
+    mode: "0755"
+  when: bitcoind_install_cli_wrapper | bool
+
+# Handlers otherwise run at the end of the play, which would put the restart
+# after the health check and after the version cookie is written. A broken
+# config would then be reported healthy, the cookie would record success, and
+# only then would the restart fail. Flushing here means the health check below
+# tests the configuration that is actually running.
+- name: Bitcoind | Apply pending service restarts before checking health
+  ansible.builtin.meta: flush_handlers
 
 - name: "Bitcoind | Ensure 'bitcoind-{{ bitcoind_network }}.service' systemd unit is enabled and started"
   ansible.builtin.systemd:
@@ -260,6 +516,26 @@
     enabled: true
     state: started
   register: _bitcoind_service_start
+
+# A running unit only proves the process survived startup. Asking the daemon a
+# question over RPC proves the configuration is actually usable, and surfaces a
+# broken config here rather than the next time someone needs the node.
+# Run as root, which can read the datadir cookie; the service account has a
+# nologin shell.
+- name: Bitcoind | Wait for the RPC interface to respond
+  ansible.builtin.command:
+    cmd: >-
+      bitcoin-cli -datadir={{ bitcoind_data_dir }}
+      -conf={{ bitcoind_data_dir }}/bitcoind.conf
+      -rpcwait -rpcwaittimeout={{ bitcoind_rpc_wait_timeout }}
+      -getinfo
+  register: _bitcoind_rpc_ready
+  changed_when: false
+  # Nothing to ask when the RPC server is switched off, whether through the
+  # named variable or an override in bitcoind_config.
+  when:
+    - bitcoind_health_check | bool
+    - bitcoind_config.server | default(bitcoind_server) | bool
 
 - name: "Bitcoind | Ensure version cookie file set"
   ansible.builtin.template:

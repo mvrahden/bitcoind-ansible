@@ -1,0 +1,11 @@
+---
+exclude_paths:
+  - docs/superpowers/
+  - .venv/
+
+skip_list:
+  # The role names tasks like "Bitcoind | Ensure user '{{ bitcoind_user }}'
+  # exists", where the interpolated value identifies which thing is being acted
+  # on. Forcing templates to the end of the name would make the task list
+  # harder to scan, not easier.
+  - name[template]

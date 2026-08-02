@@ -1,3 +1,4 @@
+---
 galaxy_info:
   author: mvrahden
   description: Bitcoin Core / Knots client as a Systemd service
@@ -11,13 +12,17 @@ galaxy_info:
   # https://galaxy.ansible.com/api/v1/platforms/
   #
   platforms:
+    - name: Debian
+      versions:
+        - bookworm
+        - trixie
     - name: Ubuntu
       versions:
-        - focal
         - jammy
+        - noble
 
   galaxy_tags:
     - bitcoin
-    - bitcoin-core
-    - bitcoin-knots
+    - bitcoincore
+    - bitcoinknots
     - bitcoind

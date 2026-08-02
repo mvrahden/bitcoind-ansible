@@ -1,0 +1,19 @@
+# Stage 1 of the upgrade test: install the previous release.
+#
+# The version cookie logic that decides whether to re-download and swap
+# binaries is the most intricate part of the role, and a fresh-install test
+# never exercises it. This scenario installs one release, upgrades to another
+# in side_effect.yml, and asserts the swap actually happened in verify.yml.
+---
+- name: Converge
+  hosts: all
+  become: true
+
+  vars:
+    bitcoind_network: regtest
+    # No bitcoind_rpc_auth: this scenario covers cookie-only
+    # authentication, which is what a loopback-only node needs.
+    bitcoind_implementation: "{{ lookup('env', 'BITCOIND_IMPL') | default('core', true) }}"
+    bitcoind_version: "{{ lookup('env', 'BITCOIND_VERSION_FROM') | default('31.0', true) }}"
+  roles:
+    - mvrahden.bitcoind

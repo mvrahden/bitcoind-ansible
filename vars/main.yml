@@ -1,0 +1,60 @@
+---
+# Maps ansible_architecture onto the architecture component of the release
+# tarball name. Availability varies by implementation and release: Core 31.1
+# publishes powerpc64 but not powerpc64le, while Knots 29.3 publishes both.
+# A mapped-but-unpublished architecture is caught when the checksum for the
+# tarball cannot be found in the verified SHA256SUMS.
+# Binaries grouped by what they are for, which is how an operator thinks about
+# them. Selecting by group rather than by filename means one setting works
+# across Core and Knots, whose binary sets differ, and across versions: Core
+# dropped test_bitcoin at 30.x while Knots still ships it, and the multiprocess
+# names below appear only in some builds. A group installs whatever it finds and
+# ignores the rest.
+#
+# This is also the universe of names cleanup may remove. /usr/local/bin belongs
+# to the operator, not to this role, so deleting "anything not selected" would
+# take unrelated software with it. Deriving the bound from these groups keeps a
+# single source of truth: a binary that has a group can be cleaned up, and one
+# that does not is none of the role's business.
+#
+# The multiprocess, chainstate, benchmark and test names come from the `bitcoin`
+# multiplexer's own help output, which enumerates what upstream expects to sit
+# alongside it.
+_bitcoind_binary_groups:
+  node:
+    - bitcoind
+    - bitcoin-node
+  cli:
+    - bitcoin-cli
+  wallet:
+    - bitcoin-wallet
+  tools:
+    - bitcoin
+    - bitcoin-tx
+    - bitcoin-util
+    - bitcoin-chainstate
+  gui:
+    - bitcoin-qt
+    - bitcoin-gui
+  test:
+    - test_bitcoin
+    - test_bitcoin-qt
+    - bench_bitcoin
+
+# Addresses that only reach this host. Used to decide whether RPC is exposed
+# beyond the machine, and so whether a static credential is needed at all: the
+# cookie file only helps clients that can read it locally.
+_bitcoind_loopback_re: '^(127\.|::1$|\[::1\]$|localhost$)'
+
+# rpcbind after bitcoind_config has had its say, since that overrides the named
+# variable and the exposure decision has to reflect what will actually be
+# written to bitcoin.conf.
+_bitcoind_rpc_bind_effective: "{{ bitcoind_config.rpcbind | default(bitcoind_rpc_bind) }}"
+
+_bitcoind_arch_map:
+  x86_64: x86_64-linux-gnu
+  aarch64: aarch64-linux-gnu
+  armv7l: arm-linux-gnueabihf
+  riscv64: riscv64-linux-gnu
+  ppc64: powerpc64-linux-gnu
+  ppc64le: powerpc64le-linux-gnu

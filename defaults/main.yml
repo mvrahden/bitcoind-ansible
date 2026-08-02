@@ -7,14 +7,54 @@ bitcoind_group: bitcoin
 bitcoind_implementation: core
 
 # Bitcoin binary information
-# Core default: 30.2  |  Knots example: 29.2.knots20251110
-bitcoind_version: 30.2
+# Core default: 31.1  |  Knots example: 29.3.knots20260508
+bitcoind_version: 31.1
 # Auto-detected from ansible_architecture when empty.
 # Override for cross-platform deploys (e.g. "aarch64-linux-gnu").
 bitcoind_arch: ""
 
+# Which of the release's binaries to install, chosen by group. A release tarball
+# carries far more than a headless node runs, and the surplus is most of the
+# download. Anything not selected is not installed, and is removed from
+# /usr/local/bin if an earlier run put it there.
+#
+#   node     bitcoind. The daemon. Required.
+#   cli      bitcoin-cli. The client the health check and the bitcoin-cli
+#            wrapper talk to the node through. Required in practice.
+#   wallet   bitcoin-wallet. An offline tool for creating and repairing wallet
+#            files. A node with the wallet enabled does not need it: wallets are
+#            created and used over RPC.
+#   tools    bitcoin-tx and bitcoin-util for offline transaction and key work,
+#            and the `bitcoin` multiplexer that dispatches to the others.
+#   gui      bitcoin-qt. Cannot run on a headless host; see the README.
+#   test     test_bitcoin and the benchmark runner. Knots still ships these,
+#            Core stopped at 30.x.
+#
+# A group installs whichever of its binaries the chosen release actually ships,
+# so one setting works across Core, Knots and versions, and binaries added by
+# future releases arrive with their group rather than needing a config change.
+bitcoind_install_binary_groups:
+  - node
+  - cli
+
+# Individual binaries to install alongside the groups above, for when a whole
+# group is more than you want. Unlike a group, a name listed here must exist in
+# the chosen release: asking for one it does not ship fails the run.
+bitcoind_install_extra_binaries: []
+
+# Install /usr/local/bin/bitcoin-cli-<network>, which calls bitcoin-cli with
+# this node's data directory and configuration already filled in. Without it
+# every operator command needs both paths spelled out, because bitcoin-cli
+# defaults to ~/.bitcoin/bitcoin.conf and this node uses neither.
+bitcoind_install_cli_wrapper: true
+
 # Serve JSON-RPC
 bitcoind_server: true
+
+# After starting the service, confirm the daemon answers over RPC rather than
+# trusting that systemd reports the unit as running. Seconds to wait.
+bitcoind_health_check: true
+bitcoind_rpc_wait_timeout: 120
 
 # Wallet (disabled by default — enable only if you need on-node wallet functionality)
 bitcoind_disablewallet: true
@@ -28,21 +68,30 @@ bitcoind_listen: true
 # Whitelist localhost connections
 bitcoind_whitelist: 127.0.0.1
 
-# Bitcoin GPG public keys per implementation.
-# Names must match the ones found in the respective guix.sigs repositories:
-#   Core: https://github.com/bitcoin-core/guix.sigs
-#   Knots: https://github.com/bitcoinknots/guix.sigs
-bitcoind_pgp_builders_pub_key_core:
-  - id: 71A3B16735405025D447E8F274810B012346C9A6
-    name: laanwj
-  - id: E777299FC265DD04793070EB944D35F9AC3DB76A
-    name: fanquake
+# Binary verification.
+#
+# The release checksum file is verified against the builder keys bundled in
+# files/builder-keys/<implementation>/, and installation proceeds only if at
+# least this many distinct trusted builders signed it. Guix attestation is
+# voluntary and the signer set changes every release, so pinning specific
+# signers breaks as soon as one of them stops signing; a threshold does not.
+#
+# The default of 3 matches Bitcoin Core's own contrib/verify-binaries tooling.
+bitcoind_gpg_min_valid_signatures: 3
 
-bitcoind_pgp_builders_pub_key_knots:
-  - id: 1A3E761F19D2CC7785C5502EA291A2C45D0C504A
-    name: luke-jr
-  - id: 1D70CBE4B42239445617D33DD316C8140185B647
-    name: shiny
+# Empty means "trust every bundled builder key". Set to a list of primary key
+# fingerprints to narrow trust to specific builders without pruning the bundle.
+bitcoind_gpg_trusted_fingerprints: []
+
+# Count signatures that are cryptographically good but were made by keys that
+# have since expired. Left false because an expired key is a weaker statement
+# of intent, and releases are normally signed by enough builders that the
+# threshold is met without them.
+bitcoind_gpg_allow_expired_keys: false
+
+# Bypass verification entirely. Strongly discouraged: it removes the only
+# guarantee that the binaries came from the Bitcoin project.
+bitcoind_skip_gpg_verification: false
 
 # Data directory mount configuration.
 # Set bitcoind_data_mount_device to have the role manage the fstab entry.
@@ -58,9 +107,20 @@ bitcoind_data_dir: /data/bitcoin
 bitcoind_network: main
 bitcoind_bind: 127.0.0.1
 
-# Bitcoin RPC server auth data (required — no default for security).
+# Suppress Ansible output for the config template task, which would otherwise
+# echo the rpcauth hash. Set to false to preview a config change with
+# --check --diff, accepting that the hash appears in the output.
+bitcoind_no_log: true
+
+# Bitcoin RPC credential, as the "rpcauth=" value without that prefix.
 # Generate with: python3 share/rpcauth/rpcauth.py <username>
-# The output line "rpcauth=..." goes here (without the "rpcauth=" prefix).
+#
+# Only needed when RPC is reachable from another host, meaning both a
+# non-loopback bitcoind_rpc_bind and a non-loopback entry in
+# bitcoind_rpc_allow_ips. Left empty, a node authenticates local clients with
+# the cookie file Bitcoin Core writes into the data directory on every start,
+# which rotates on restart and leaves no secret to store. The role's health
+# check, the bitcoin-cli wrapper and local indexers all use it.
 bitcoind_rpc_auth: ""
 bitcoind_rpc_bind: 127.0.0.1
 bitcoind_rpc_port: 8332
@@ -83,3 +143,44 @@ bitcoind_nodes: []
 
 # Restrict to onion network only (requires bitcoind_proxy pointing at Tor)
 bitcoind_use_onion: false
+
+# Tor integration.
+#
+# Setting bitcoind_proxy alone routes outbound traffic through Tor but does not
+# publish an onion address: that additionally requires access to Tor's control
+# port, which the service unit grants via SupplementaryGroups. Enabling this
+# wires up listenonion, torcontrol and the proxy together.
+#
+# The role does not install or configure Tor. Tor must already be running with:
+#
+#   ControlPort 127.0.0.1:9051
+#   CookieAuthentication 1
+#   CookieAuthFileGroupReadable 1
+#
+# The third line is the one that is easy to miss. Without it Tor writes its
+# control cookie mode 0600, so belonging to the control group does not help and
+# the daemon still cannot publish an onion address.
+bitcoind_tor_enabled: false
+bitcoind_tor_proxy: 127.0.0.1:9050
+bitcoind_tor_control: 127.0.0.1:9051
+# System group owning Tor's control authentication cookie.
+bitcoind_tor_control_group: debian-tor
+
+# Arbitrary bitcoin.conf options, applied last so they override anything
+# derived from the variables above. This is the escape hatch for every option
+# the role does not name explicitly (prune, dbcache, maxconnections,
+# blockfilterindex, maxuploadtarget, datacarriersize, ...).
+#
+#   bitcoind_config:
+#     prune: 550
+#     dbcache: 2048
+#     blockfilterindex: true
+#     maxuploadtarget: 5000
+#
+# Booleans render as 1/0 and lists render as repeated keys.
+bitcoind_config: {}
+
+# Options scoped to the active network. For any network other than main these
+# are emitted under the matching [section], because bind, rpcbind, rpcport and
+# addnode otherwise apply to mainnet only.
+bitcoind_network_config: {}

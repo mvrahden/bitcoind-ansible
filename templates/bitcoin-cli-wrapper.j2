@@ -1,0 +1,19 @@
+#!/bin/sh
+# This file is managed by mvrahden/bitcoind-ansible. Do not edit it by hand.
+#
+# bitcoin-cli looks for its configuration at <datadir>/bitcoin.conf, and its
+# datadir defaults to ~/.bitcoin. This node keeps neither, so every invocation
+# would otherwise need both paths spelled out. This wrapper supplies them.
+#
+# Authentication uses the cookie file the daemon writes into the data
+# directory. That file is only readable by {{ bitcoind_user }}, so run this as
+# root (via sudo) or as {{ bitcoind_user }}. To reach the node as an ordinary
+# user, pass RPC credentials instead:
+#
+#   bitcoin-cli -rpcconnect={{ bitcoind_rpc_bind }} -rpcport={{ bitcoind_rpc_port }} \
+#     -rpcuser=<user> -rpcpassword=<password> getblockchaininfo
+
+exec /usr/local/bin/bitcoin-cli \
+  -datadir={{ bitcoind_data_dir }} \
+  -conf={{ bitcoind_data_dir }}/bitcoind.conf \
+  "$@"

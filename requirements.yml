@@ -1,0 +1,7 @@
+---
+# Collections this role depends on. Standalone roles cannot express collection
+# dependencies through meta/main.yml, so install these alongside the role:
+#
+#   ansible-galaxy install -r requirements.yml
+collections:
+  - name: ansible.posix

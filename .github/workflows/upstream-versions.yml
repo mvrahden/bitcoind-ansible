@@ -1,0 +1,75 @@
+# The role pins exact versions on purpose: an install should be reproducible,
+# and resolving "latest" at run time would mean two hosts converged a week apart
+# could end up on different releases. The cost of pinning is that defaults go
+# stale silently, so this checks weekly and opens an issue instead of relying on
+# anyone remembering to look.
+---
+name: Upstream versions
+on:
+  schedule:
+    - cron: '0 7 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare pinned defaults against upstream releases
+        id: check
+        run: |
+          set -euo pipefail
+
+          pinned_core="$(grep -E '^bitcoind_version:' defaults/main.yml | awk '{print $2}')"
+          pinned_knots="$(grep -oE '[0-9]+\.[0-9]+\.knots[0-9]+' README.md | head -1)"
+
+          latest_core="$(curl -fsSL https://api.github.com/repos/bitcoin/bitcoin/releases/latest \
+            | grep '"tag_name"' | sed -E 's/.*"v?([^"]+)".*/\1/')"
+          latest_knots="$(curl -fsSL https://api.github.com/repos/bitcoinknots/bitcoin/releases/latest \
+            | grep '"tag_name"' | sed -E 's/.*"v?([^"]+)".*/\1/')"
+
+          echo "core:  pinned=${pinned_core}  latest=${latest_core}"
+          echo "knots: pinned=${pinned_knots} latest=${latest_knots}"
+
+          stale=""
+          note() { stale="${stale}- ${1}: pinned \`${2}\`, latest \`${3}\`"$'\n'; }
+
+          [ "${pinned_core}" = "${latest_core}" ] \
+            || note "Bitcoin Core" "${pinned_core}" "${latest_core}"
+          [ "${pinned_knots}" = "${latest_knots}" ] \
+            || note "Bitcoin Knots" "${pinned_knots}" "${latest_knots}"
+
+          {
+            echo "stale<<EOF"
+            echo "${stale}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open an issue when a default is behind
+        if: steps.check.outputs.stale != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = `The pinned defaults are behind upstream:\n\n${{ toJSON(steps.check.outputs.stale) }}\n\n` +
+              `Bumping also requires confirming the new release is signed by at least ` +
+              `\`bitcoind_gpg_min_valid_signatures\` builders whose keys are bundled in ` +
+              `\`files/builder-keys/\`. If it is not, refresh the bundle with ` +
+              `\`scripts/update-builder-keys.sh\`.`;
+            const title = 'Pinned Bitcoin version is behind upstream';
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: 'upstream-version',
+            });
+            if (existing.data.some(i => i.title === title)) {
+              core.info('An open issue already tracks this.');
+              return;
+            }
+            await github.rest.issues.create({
+              owner: context.repo.owner, repo: context.repo.repo,
+              title, body, labels: ['upstream-version'],
+            });

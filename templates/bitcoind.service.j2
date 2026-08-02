@@ -42,6 +42,13 @@ TimeoutStopSec=600
 # Run as {{ bitcoind_user }}:{{ bitcoind_group }}
 User={{ bitcoind_user }}
 Group={{ bitcoind_group }}
+{% if bitcoind_tor_enabled and bitcoind_tor_control_group | length > 0 %}
+
+# Read access to Tor's control authentication cookie, without which listenonion
+# cannot publish an onion address. Granted here rather than by adding the
+# service account to the group, so the role does not mutate system user state.
+SupplementaryGroups={{ bitcoind_tor_control_group }}
+{% endif %}
 
 # /run/bitcoind/{{ bitcoind_network }}
 RuntimeDirectory=bitcoind/{{ bitcoind_network }}
