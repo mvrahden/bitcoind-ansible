@@ -11,10 +11,14 @@ galaxy_info:
   # https://galaxy.ansible.com/api/v1/platforms/
   #
   platforms:
+    - name: Debian
+      versions:
+        - bookworm
+        - trixie
     - name: Ubuntu
       versions:
-        - focal
         - jammy
+        - noble
 
   galaxy_tags:
     - bitcoin

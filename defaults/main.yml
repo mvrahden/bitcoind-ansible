@@ -7,8 +7,8 @@ bitcoind_group: bitcoin
 bitcoind_implementation: core
 
 # Bitcoin binary information
-# Core default: 30.2  |  Knots example: 29.2.knots20251110
-bitcoind_version: 30.2
+# Core default: 31.1  |  Knots example: 29.3.knots20260508
+bitcoind_version: 31.1
 # Auto-detected from ansible_architecture when empty.
 # Override for cross-platform deploys (e.g. "aarch64-linux-gnu").
 bitcoind_arch: ""
@@ -28,21 +28,30 @@ bitcoind_listen: true
 # Whitelist localhost connections
 bitcoind_whitelist: 127.0.0.1
 
-# Bitcoin GPG public keys per implementation.
-# Names must match the ones found in the respective guix.sigs repositories:
-#   Core: https://github.com/bitcoin-core/guix.sigs
-#   Knots: https://github.com/bitcoinknots/guix.sigs
-bitcoind_pgp_builders_pub_key_core:
-  - id: 71A3B16735405025D447E8F274810B012346C9A6
-    name: laanwj
-  - id: E777299FC265DD04793070EB944D35F9AC3DB76A
-    name: fanquake
+# Binary verification.
+#
+# The release checksum file is verified against the builder keys bundled in
+# files/builder-keys/<implementation>/, and installation proceeds only if at
+# least this many distinct trusted builders signed it. Guix attestation is
+# voluntary and the signer set changes every release, so pinning specific
+# signers breaks as soon as one of them stops signing; a threshold does not.
+#
+# The default of 3 matches Bitcoin Core's own contrib/verify-binaries tooling.
+bitcoind_gpg_min_valid_signatures: 3
 
-bitcoind_pgp_builders_pub_key_knots:
-  - id: 1A3E761F19D2CC7785C5502EA291A2C45D0C504A
-    name: luke-jr
-  - id: 1D70CBE4B42239445617D33DD316C8140185B647
-    name: shiny
+# Empty means "trust every bundled builder key". Set to a list of primary key
+# fingerprints to narrow trust to specific builders without pruning the bundle.
+bitcoind_gpg_trusted_fingerprints: []
+
+# Count signatures that are cryptographically good but were made by keys that
+# have since expired. Left false because an expired key is a weaker statement
+# of intent, and releases are normally signed by enough builders that the
+# threshold is met without them.
+bitcoind_gpg_allow_expired_keys: false
+
+# Bypass verification entirely. Strongly discouraged: it removes the only
+# guarantee that the binaries came from the Bitcoin project.
+bitcoind_skip_gpg_verification: false
 
 # Data directory mount configuration.
 # Set bitcoind_data_mount_device to have the role manage the fstab entry.

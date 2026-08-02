@@ -1,0 +1,13 @@
+---
+# Maps ansible_architecture onto the architecture component of the release
+# tarball name. Availability varies by implementation and release: Core 31.1
+# publishes powerpc64 but not powerpc64le, while Knots 29.3 publishes both.
+# A mapped-but-unpublished architecture is caught when the checksum for the
+# tarball cannot be found in the verified SHA256SUMS.
+_bitcoind_arch_map:
+  x86_64: x86_64-linux-gnu
+  aarch64: aarch64-linux-gnu
+  armv7l: arm-linux-gnueabihf
+  riscv64: riscv64-linux-gnu
+  ppc64: powerpc64-linux-gnu
+  ppc64le: powerpc64le-linux-gnu

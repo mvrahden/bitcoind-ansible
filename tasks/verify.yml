@@ -1,0 +1,124 @@
+# Verify the release checksum file against a threshold of trusted builder
+# signatures.
+#
+# Both upstreams publish a single SHA256SUMS.asc carrying every builder's
+# signature, so there is no need to fetch per-signer attestations from the
+# guix.sigs repositories. Guix attestation is voluntary and the signer set
+# changes with every release, so requiring specific named signers breaks
+# whenever one of them stops signing. Requiring a threshold of signatures from
+# a trusted set does not.
+#
+# This mirrors Bitcoin Core's own contrib/verify-binaries/verify.py, which
+# defaults to --min-good-sigs 3.
+---
+- name: Bitcoind | Stage trusted builder keys
+  ansible.builtin.copy:
+    src: "builder-keys/{{ bitcoind_implementation }}/"
+    dest: "{{ _bitcoind_staging.path }}/builder-keys/"
+    mode: "0600"
+
+- name: Bitcoind | Stage GPG status parser
+  ansible.builtin.copy:
+    src: parse-gpg-status.awk
+    dest: "{{ _bitcoind_staging.path }}/parse-gpg-status.awk"
+    mode: "0600"
+
+- name: Bitcoind | Import trusted builder keys into the ephemeral keyring
+  ansible.builtin.shell:
+    cmd: >-
+      gpg --homedir {{ _bitcoind_gpg_home | quote }} --batch --quiet
+      --import {{ _bitcoind_staging.path | quote }}/builder-keys/*.asc
+  changed_when: false
+
+- name: "Bitcoind | Download SHA256SUMS.asc for Bitcoin v{{ bitcoind_version }}"
+  ansible.builtin.get_url:
+    url: "{{ _bitcoind_base_url }}/SHA256SUMS.asc"
+    dest: "{{ _bitcoind_staging.path }}/SHA256SUMS.asc"
+    mode: "0600"
+    http_agent: bitcoind-ansible
+
+- name: Bitcoind | Verify SHA256SUMS signatures against trusted builder keys
+  ansible.builtin.shell:
+    cmd: >-
+      gpg --homedir {{ _bitcoind_gpg_home | quote }} --status-fd=1 --verify
+      {{ _bitcoind_staging.path | quote }}/SHA256SUMS.asc
+      {{ _bitcoind_staging.path | quote }}/SHA256SUMS
+      2>/dev/null
+      | awk -f {{ _bitcoind_staging.path | quote }}/parse-gpg-status.awk
+  register: _bitcoind_gpg_status
+  changed_when: false
+  # gpg exits 2 when a release carries signatures from builders outside the
+  # trusted keyring, which is the normal case. The exit code therefore carries
+  # no useful signal and the decision is made entirely from the parsed status
+  # lines below.
+  failed_when: false
+
+- name: Bitcoind | Classify signature verification results
+  ansible.builtin.set_fact:
+    _bitcoind_sig_good: >-
+      {{ _bitcoind_gpg_status.stdout_lines | select('match', '^GOOD ')
+         | map('regex_replace', '^GOOD ', '') | unique | list }}
+    _bitcoind_sig_expired: >-
+      {{ _bitcoind_gpg_status.stdout_lines | select('match', '^EXPIRED ')
+         | map('regex_replace', '^EXPIRED ', '') | unique | list }}
+    _bitcoind_sig_revoked: >-
+      {{ _bitcoind_gpg_status.stdout_lines | select('match', '^REVOKED ')
+         | map('regex_replace', '^REVOKED ', '') | unique | list }}
+    _bitcoind_sig_bad: >-
+      {{ _bitcoind_gpg_status.stdout_lines | select('match', '^BAD ')
+         | map('regex_replace', '^BAD ', '') | unique | list }}
+
+# A revoked key means the builder declared it compromised. An outright bad
+# signature means the checksum file does not match what was signed. Neither is
+# ever tolerable, regardless of how many other signatures verify.
+- name: Bitcoind | Reject revoked or forged signatures
+  ansible.builtin.fail:
+    msg: >-
+      Refusing to install Bitcoin v{{ bitcoind_version }}: the checksum file
+      carries
+      {{ _bitcoind_sig_revoked | length }} signature(s) from revoked keys
+      ({{ _bitcoind_sig_revoked | join(', ') or 'none' }}) and
+      {{ _bitcoind_sig_bad | length }} invalid signature(s)
+      ({{ _bitcoind_sig_bad | join(', ') or 'none' }}).
+      This should not happen for a genuine release. Do not proceed until you
+      understand why.
+  when: (_bitcoind_sig_revoked | length > 0) or (_bitcoind_sig_bad | length > 0)
+
+- name: Bitcoind | Determine which signatures count toward the threshold
+  ansible.builtin.set_fact:
+    _bitcoind_sig_counted: >-
+      {{ _bitcoind_sig_good
+         + (_bitcoind_sig_expired if bitcoind_gpg_allow_expired_keys | bool else []) }}
+
+# An empty bitcoind_gpg_trusted_fingerprints means "trust every bundled builder
+# key". Setting it narrows trust to a specific subset without having to prune
+# the bundle.
+- name: Bitcoind | Restrict accepted signatures to the configured fingerprints
+  ansible.builtin.set_fact:
+    _bitcoind_sig_counted: >-
+      {{ _bitcoind_sig_counted | map('upper') | list
+         | intersect(bitcoind_gpg_trusted_fingerprints | map('upper') | list) }}
+  when: bitcoind_gpg_trusted_fingerprints | length > 0
+
+- name: Bitcoind | Require a threshold of trusted builder signatures
+  ansible.builtin.assert:
+    that:
+      - _bitcoind_sig_counted | length >= bitcoind_gpg_min_valid_signatures | int
+    fail_msg: >-
+      Only {{ _bitcoind_sig_counted | length }} trusted signature(s) verified
+      for Bitcoin v{{ bitcoind_version }}, but
+      {{ bitcoind_gpg_min_valid_signatures }} are required.
+      Verified: {{ _bitcoind_sig_counted | join(', ') or 'none' }}.
+      {% if _bitcoind_sig_expired | length > 0 and not bitcoind_gpg_allow_expired_keys | bool %}
+      Additionally {{ _bitcoind_sig_expired | length }} signature(s) were good
+      but made by since-expired keys
+      ({{ _bitcoind_sig_expired | join(', ') }}); set
+      bitcoind_gpg_allow_expired_keys=true to count them.
+      {% endif %}
+      If this release is signed by builders missing from the bundle, refresh it
+      with scripts/update-builder-keys.sh, or lower
+      bitcoind_gpg_min_valid_signatures.
+    success_msg: >-
+      {{ _bitcoind_sig_counted | length }} trusted builder signature(s) verified
+      for Bitcoin v{{ bitcoind_version }}
+      (threshold {{ bitcoind_gpg_min_valid_signatures }}).

@@ -3,11 +3,26 @@
   ansible.builtin.set_fact:
     _bitcoind_change_version: false # default
 
+- name: Bitcoind | Validate the target OS family is supported
+  ansible.builtin.fail:
+    msg: >-
+      This role manages packages with apt and supports Debian-family systems
+      only, but ansible_os_family is "{{ ansible_os_family }}".
+  when: ansible_os_family != 'Debian'
+
+# Previously anything that was not aarch64 fell through to x86_64, which
+# silently installed wrong-architecture binaries on 32-bit ARM and riscv64.
 - name: Bitcoind | Auto-detect architecture
   ansible.builtin.set_fact:
-    bitcoind_arch: >-
-      {{ 'aarch64-linux-gnu' if ansible_architecture == 'aarch64'
-         else 'x86_64-linux-gnu' }}
+    bitcoind_arch: "{{ _bitcoind_arch_map[ansible_architecture] | default('') }}"
+  when: bitcoind_arch | length == 0
+
+- name: Bitcoind | Validate architecture is supported
+  ansible.builtin.fail:
+    msg: >-
+      Unsupported architecture "{{ ansible_architecture }}". Bitcoin publishes
+      Linux builds for {{ _bitcoind_arch_map.keys() | join(', ') }}.
+      Set bitcoind_arch explicitly to override detection.
   when: bitcoind_arch | length == 0
 
 - name: Bitcoind | Validate implementation is supported
@@ -18,29 +33,24 @@
 
 - name: Bitcoind | Set implementation-specific facts
   ansible.builtin.set_fact:
-    _bitcoind_pgp_builders: >-
-      {{ bitcoind_pgp_builders_pub_key_core
-         if bitcoind_implementation == 'core'
-         else bitcoind_pgp_builders_pub_key_knots }}
     _bitcoind_base_url: >-
       {{ 'https://bitcoincore.org/bin/bitcoin-core-' ~ bitcoind_version
          if bitcoind_implementation == 'core'
          else 'https://bitcoinknots.org/files/' ~ bitcoind_version.split('.')[0] ~ '.x/' ~ bitcoind_version }}
-    _bitcoind_guix_sigs_base_url: >-
-      {{ 'https://raw.githubusercontent.com/bitcoin-core/guix.sigs/main'
-         if bitcoind_implementation == 'core'
-         else 'https://raw.githubusercontent.com/bitcoinknots/guix.sigs/knots' }}
 
-# Fix #2: GPG verification must be explicitly configured or explicitly skipped
-- name: Bitcoind | Validate GPG verification is configured
-  ansible.builtin.fail:
+# Removed in 2.0.0. These pinned verification to specific named signers, which
+# breaks on any release those signers did not attest to.
+- name: Bitcoind | Warn about removed per-signer verification variables
+  ansible.builtin.debug:
     msg: >-
-      GPG builder keys must contain at least one GPG key for binary
-      signature verification. Set bitcoind_skip_gpg_verification=true to bypass
-      (not recommended).
-  when:
-    - _bitcoind_pgp_builders | length == 0
-    - not (bitcoind_skip_gpg_verification | default(false) | bool)
+      WARNING: bitcoind_pgp_builders_pub_key_core/_knots are no longer used and
+      are being ignored. Verification now requires
+      bitcoind_gpg_min_valid_signatures distinct signatures from the builder
+      keys bundled in files/builder-keys/. To narrow trust to specific
+      builders, set bitcoind_gpg_trusted_fingerprints instead.
+  when: >-
+    bitcoind_pgp_builders_pub_key_core is defined
+    or bitcoind_pgp_builders_pub_key_knots is defined
 
 # Fix #3: RPC credential must be provided — no hardcoded default
 - name: Bitcoind | Validate RPC auth is configured
@@ -50,17 +60,14 @@
       python3 share/rpcauth/rpcauth.py <username>
   when: bitcoind_rpc_auth | default('') | length == 0
 
+# dirmngr is no longer needed: builder keys ship with the role rather than
+# being fetched from a keyserver at install time.
 - name: Bitcoind | Ensure dependencies are installed
   ansible.builtin.apt:
     update_cache: true
-    name: "{{ item }}"
+    name: gpg
     state: present
-  with_items:
-    - gpg
-    - dirmngr
-  when:
-    - _bitcoind_pgp_builders | length > 0
-    - not (bitcoind_skip_gpg_verification | default(false) | bool)
+  when: not (bitcoind_skip_gpg_verification | bool)
 
 - name: "Bitcoind | Ensure group '{{ bitcoind_group }}' exists"
   ansible.builtin.group:
@@ -137,27 +144,16 @@
         state: directory
         mode: "0700"
 
-    - name: Bitcoind | Configure GPG keyserver
-      ansible.builtin.copy:
-        dest: "{{ _bitcoind_gpg_home }}/dirmngr.conf"
-        content: "keyserver hkps://keys.openpgp.org\n"
-        mode: "0600"
-
     - name: "Bitcoind | Download SHA256SUMS for Bitcoin v{{ bitcoind_version }}"
       ansible.builtin.get_url:
         url: "{{ _bitcoind_base_url }}/SHA256SUMS"
         dest: "{{ _bitcoind_staging.path }}/SHA256SUMS"
+        mode: "0600"
         http_agent: bitcoind-ansible
 
-    - name: "Bitcoind | Verify signature with given keys"
-      ansible.builtin.include_tasks: gpg.yml
-      vars:
-        gpg_user: "{{ item.name }}"
-        gpg_id: "{{ item.id }}"
-      with_items: "{{ _bitcoind_pgp_builders }}"
-      when:
-        - _bitcoind_pgp_builders | length > 0
-        - not (bitcoind_skip_gpg_verification | default(false) | bool)
+    - name: "Bitcoind | Verify SHA256SUMS against trusted builder signatures"
+      ansible.builtin.include_tasks: verify.yml
+      when: not (bitcoind_skip_gpg_verification | bool)
 
     # Fix #1: Extract checksum from the GPG-verified SHA256SUMS (not a fresh HTTP fetch)
     - name: "Bitcoind | Extract verified checksum for bitcoin-{{ bitcoind_version }}-{{ bitcoind_arch }}.tar.gz"
@@ -167,7 +163,18 @@
           {{ _bitcoind_staging.path }}/SHA256SUMS
       register: _bitcoind_verified_checksum
       changed_when: false
-      failed_when: _bitcoind_verified_checksum.stdout | length != 64
+      failed_when: false
+
+    - name: "Bitcoind | Validate a checksum was found for this release and architecture"
+      ansible.builtin.fail:
+        msg: >-
+          No checksum for bitcoin-{{ bitcoind_version }}-{{ bitcoind_arch }}.tar.gz
+          in the verified SHA256SUMS of
+          Bitcoin {{ bitcoind_implementation }} v{{ bitcoind_version }}.
+          This release most likely does not publish a build for
+          {{ bitcoind_arch }}. Check {{ _bitcoind_base_url }}/SHA256SUMS for the
+          architectures it does publish.
+      when: _bitcoind_verified_checksum.stdout | trim | length != 64
 
     - name: "Bitcoind | Download Bitcoin v{{ bitcoind_version }}"
       ansible.builtin.get_url:

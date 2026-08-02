@@ -5,13 +5,13 @@
   gather_facts: false
   vars:
     bitcoind_implementation: "{{ lookup('env', 'BITCOIND_IMPL') | default('core', true) }}"
-    bitcoind_version: "{{ lookup('env', 'BITCOIND_VERSION') | default('30.2', true) }}"
+    bitcoind_version: "{{ lookup('env', 'BITCOIND_VERSION') | default('31.1', true) }}"
     bitcoind_data_dir: /data/bitcoin
     bitcoind_user: bitcoin
     bitcoind_group: bitcoin
     bitcoind_network: regtest
-    # Core 30.x: bitcoin wrapper replaces test_bitcoin
-    # Knots 29.x: still has test_bitcoin, no bitcoin wrapper
+    # Core 30.x+: bitcoin wrapper replaces test_bitcoin
+    # Knots 29.x: still has test_bitcoin, no bitcoin wrapper (confirmed for 29.3)
     _core_binaries:
       - bitcoin
       - bitcoin-cli
