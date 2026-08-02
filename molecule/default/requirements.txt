@@ -2,3 +2,4 @@ molecule>=24.0.0
 molecule-docker>=2.1.0
 ansible-core>=2.16,<2.19
 yamllint>=1.29.0
+ansible-lint>=24.0.0

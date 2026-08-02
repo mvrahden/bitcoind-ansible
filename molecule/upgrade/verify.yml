@@ -1,0 +1,70 @@
+# Stage 3 of the upgrade test: assert the binary swap actually happened, the
+# version cookie was rewritten, and the service came back healthy afterwards.
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    bitcoind_data_dir: /data/bitcoin
+    bitcoind_user: bitcoin
+    bitcoind_group: bitcoin
+    bitcoind_network: regtest
+    _version_from: "{{ lookup('env', 'BITCOIND_VERSION_FROM') | default('31.0', true) }}"
+    _version_to: "{{ lookup('env', 'BITCOIND_VERSION_TO') | default('31.1', true) }}"
+
+  tasks:
+    - name: "Read the version recorded before the upgrade"
+      ansible.builtin.slurp:
+        src: /root/.molecule-version-before
+      register: _before_raw
+
+    - name: "Read the installed binary version"
+      ansible.builtin.command:
+        cmd: /usr/local/bin/bitcoind -version
+      register: _version_after
+      changed_when: false
+
+    - name: "Read the version cookie"
+      ansible.builtin.slurp:
+        src: "{{ bitcoind_data_dir }}/.bitcoind.version"
+      register: _cookie_raw
+
+    - name: "Test the binary was actually replaced by the upgrade"
+      ansible.builtin.assert:
+        that:
+          - _version_from in (_before_raw.content | b64decode)
+          - _version_to in _version_after.stdout_lines[0]
+          - _version_from not in _version_after.stdout_lines[0]
+        fail_msg: >-
+          Expected an upgrade from {{ _version_from }} to {{ _version_to }}.
+          Before: {{ _before_raw.content | b64decode | trim }}.
+          After: {{ _version_after.stdout_lines[0] }}.
+
+    - name: "Test the version cookie tracks the installed version"
+      ansible.builtin.assert:
+        that:
+          - (_cookie_raw.content | b64decode).splitlines() | last | trim == _version_to
+        fail_msg: >-
+          Version cookie says
+          "{{ (_cookie_raw.content | b64decode).splitlines() | last | trim }}",
+          expected "{{ _version_to }}".
+
+    - name: "Check the service after the upgrade"
+      ansible.builtin.systemd:
+        name: "bitcoind-{{ bitcoind_network }}.service"
+      register: _service_state
+
+    - name: "Test the service is running the upgraded binary"
+      ansible.builtin.assert:
+        that:
+          - _service_state.status.ActiveState == 'active'
+          - _service_state.status.SubState == 'running'
+
+    - name: "Test the daemon answers over RPC after the upgrade"
+      ansible.builtin.command:
+        cmd: >-
+          bitcoin-cli -datadir={{ bitcoind_data_dir }}
+          -conf={{ bitcoind_data_dir }}/bitcoind.conf
+          -rpcwait -rpcwaittimeout=120 -getinfo
+      changed_when: false

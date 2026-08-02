@@ -4,3 +4,4 @@ molecule/*/venv
 */test-bitcoin.conf
 */.vscode
 .venv
+.ansible/

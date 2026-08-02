@@ -1,3 +1,4 @@
+---
 galaxy_info:
   author: mvrahden
   description: Bitcoin Core / Knots client as a Systemd service
@@ -22,6 +23,6 @@ galaxy_info:
 
   galaxy_tags:
     - bitcoin
-    - bitcoin-core
-    - bitcoin-knots
+    - bitcoincore
+    - bitcoinknots
     - bitcoind

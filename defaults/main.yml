@@ -16,6 +16,11 @@ bitcoind_arch: ""
 # Serve JSON-RPC
 bitcoind_server: true
 
+# After starting the service, confirm the daemon answers over RPC rather than
+# trusting that systemd reports the unit as running. Seconds to wait.
+bitcoind_health_check: true
+bitcoind_rpc_wait_timeout: 120
+
 # Wallet (disabled by default — enable only if you need on-node wallet functionality)
 bitcoind_disablewallet: true
 

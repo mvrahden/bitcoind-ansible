@@ -1,0 +1,29 @@
+# Stage 2 of the upgrade test: re-run the role with a newer version and record
+# what the role saw, so verify.yml can assert the upgrade path was taken rather
+# than the version cookie short-circuiting it.
+---
+- name: Upgrade
+  hosts: all
+  become: true
+
+  vars:
+    bitcoind_network: regtest
+    bitcoind_rpc_auth: "test:a]3a49e54de0048a4bae6de3f3e85c6$6f4c35e75cde9ee37694dcf40a932ea90c05e3a5efd16a6e0c9ae3e0abd1e9b2"
+    bitcoind_implementation: "{{ lookup('env', 'BITCOIND_IMPL') | default('core', true) }}"
+    bitcoind_version: "{{ lookup('env', 'BITCOIND_VERSION_TO') | default('31.1', true) }}"
+
+  pre_tasks:
+    - name: "Record the version installed before the upgrade"
+      ansible.builtin.command:
+        cmd: /usr/local/bin/bitcoind -version
+      register: _version_before
+      changed_when: false
+
+    - name: "Persist the pre-upgrade version for the verify stage"
+      ansible.builtin.copy:
+        content: "{{ _version_before.stdout_lines[0] }}\n"
+        dest: /root/.molecule-version-before
+        mode: "0600"
+
+  roles:
+    - mvrahden.bitcoind

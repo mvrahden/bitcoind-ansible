@@ -38,20 +38,27 @@
     http_agent: bitcoind-ansible
 
 - name: Bitcoind | Verify SHA256SUMS signatures against trusted builder keys
-  ansible.builtin.shell:
+  ansible.builtin.command:
     cmd: >-
-      gpg --homedir {{ _bitcoind_gpg_home | quote }} --status-fd=1 --verify
+      gpg --homedir {{ _bitcoind_gpg_home | quote }}
+      --status-file {{ _bitcoind_staging.path | quote }}/gpg-status.txt
+      --verify
       {{ _bitcoind_staging.path | quote }}/SHA256SUMS.asc
       {{ _bitcoind_staging.path | quote }}/SHA256SUMS
-      2>/dev/null
-      | awk -f {{ _bitcoind_staging.path | quote }}/parse-gpg-status.awk
-  register: _bitcoind_gpg_status
   changed_when: false
   # gpg exits 2 when a release carries signatures from builders outside the
   # trusted keyring, which is the normal case. The exit code therefore carries
   # no useful signal and the decision is made entirely from the parsed status
   # lines below.
   failed_when: false
+
+- name: Bitcoind | Summarise the signature status
+  ansible.builtin.command:
+    cmd: >-
+      awk -f {{ _bitcoind_staging.path | quote }}/parse-gpg-status.awk
+      {{ _bitcoind_staging.path | quote }}/gpg-status.txt
+  register: _bitcoind_gpg_status
+  changed_when: false
 
 - name: Bitcoind | Classify signature verification results
   ansible.builtin.set_fact:

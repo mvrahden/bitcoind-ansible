@@ -8,6 +8,14 @@ on:
 
 jobs:
 
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint
+        run: make lint
+
   molecule:
     runs-on: ubuntu-latest
     strategy:
@@ -38,6 +46,31 @@ jobs:
 
       - name: Test with molecule
         run: make test DISTRO=${{ matrix.distro }} BITCOIND_IMPL=${{ matrix.impl }} BITCOIND_VERSION=${{ matrix.version }}
+        env:
+          PY_COLORS: '1'
+          ANSIBLE_FORCE_COLOR: '1'
+
+  # Exercises the version cookie logic that decides whether to swap binaries.
+  # A fresh-install test never reaches it.
+  upgrade:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - distro: debian12
+            impl: core
+            from: "31.0"
+            to: "31.1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test the upgrade path with molecule
+        run: >-
+          make test SCENARIO=upgrade
+          DISTRO=${{ matrix.distro }}
+          BITCOIND_IMPL=${{ matrix.impl }}
+          BITCOIND_VERSION_FROM=${{ matrix.from }}
+          BITCOIND_VERSION_TO=${{ matrix.to }}
         env:
           PY_COLORS: '1'
           ANSIBLE_FORCE_COLOR: '1'
