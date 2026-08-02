@@ -9,7 +9,8 @@ binaries and a hardened unit.
 ## Summary: What does it do?
 
 - Downloads the release and verifies it against a threshold of trusted builder signatures
-- Installs the shipped binaries to `/usr/local/bin` (`bitcoind`, `bitcoin-cli`, ...)
+- Installs only the binaries a headless node needs, and removes any others it finds
+- Adds a `bitcoin-cli-<network>` wrapper so operator commands need no flags
 - Creates a dedicated service account with a `nologin` shell
 - Sets up a hardened systemd service with configuration at `<data_dir>/bitcoind.conf`
 - Links `/home/<user>/.bitcoin` to `<data_dir>`
@@ -65,6 +66,86 @@ and pass the value after `rpcauth=`.
 Architecture is detected automatically, so a Raspberry Pi needs no special
 handling. Set `bitcoind_arch` only to override detection, for example when
 building for a different target than the host.
+
+## Operating the node
+
+The role installs `bitcoin-cli-<network>`, which calls `bitcoin-cli` with this
+node's data directory and configuration already filled in:
+
+```bash
+sudo bitcoin-cli-main getblockchaininfo
+sudo bitcoin-cli-main -netinfo
+```
+
+`sudo` is needed because authentication uses the cookie file the daemon writes,
+which only the service account can read. To reach the node as an ordinary user,
+pass RPC credentials instead:
+
+```bash
+bitcoin-cli -rpcconnect=127.0.0.1 -rpcport=8332 \
+  -rpcuser=alice -rpcpassword=... getblockchaininfo
+```
+
+The role also links `<data_dir>/bitcoin.conf` to the managed config, so tools
+that expect the standard filename work with `-datadir=<data_dir>` alone. If a
+real `bitcoin.conf` is already there it is left untouched and the role says so.
+
+Set `bitcoind_install_cli_wrapper: false` to skip the wrapper.
+
+### Which binaries get installed
+
+A release tarball carries far more than a headless node runs, so the role
+installs by group:
+
+| Group | Binaries | |
+| --- | --- | --- |
+| `node` | `bitcoind` | the daemon |
+| `cli` | `bitcoin-cli` | what the health check and wrapper use |
+| `wallet` | `bitcoin-wallet` | offline wallet file tool |
+| `tools` | `bitcoin`, `bitcoin-tx`, `bitcoin-util` | offline transaction and key work |
+| `gui` | `bitcoin-qt` | cannot run headless, see below |
+| `test` | `test_bitcoin`, `bench_bitcoin` | Knots only; Core dropped these at 30.x |
+
+```yaml
+bitcoind_install_binary_groups:
+  - node
+  - cli
+  - tools
+```
+
+The default is `[node, cli]`, roughly 20 MB installed against 81 MB for Core
+31.1 and 107.5 MB for Knots 29.3 if everything were copied.
+
+A group installs whichever of its binaries the release actually ships, so the
+same setting works for both Core and Knots and across versions, and a binary
+added by a future release arrives with its group instead of needing a config
+change. Multiprocess builds are handled the same way: `bitcoin-node` and
+`bitcoin-gui` belong to `node` and `gui` and are installed when present.
+
+For finer control, name binaries individually. Unlike a group, these must exist
+in the release — asking for one it does not ship fails the run and lists what it
+does:
+
+```yaml
+bitcoind_install_binary_groups: [node, cli]
+bitcoind_install_extra_binaries: [bitcoin-tx]   # tools, without the rest of it
+```
+
+Note that `wallet` is not implied by enabling the wallet. `bitcoin-wallet` is an
+*offline* tool for creating and repairing wallet files; a node with the wallet
+enabled manages wallets over RPC and does not need it.
+
+**The role also removes Bitcoin binaries you have not selected**, so narrowing
+the selection, or upgrading from a version of this role that installed
+everything, cleans up rather than leaving dead weight behind. Removal is bounded
+to the binaries these groups name — `/usr/local/bin` belongs to you, and nothing
+else in it is touched.
+
+`bitcoin-qt` deserves a warning if you add `gui`: it cannot run on a headless
+target. On a clean Debian 12 it fails to resolve `libfontconfig.so.1` and
+`libfreetype.so.6` for Core, and seventeen libraries including the whole X11/xcb
+stack for Knots, while `bitcoind` resolves everything it needs. You would need to
+install those libraries yourself.
 
 ## Configuration
 
@@ -137,6 +218,9 @@ bitcoind_disablewallet: false
 | `bitcoind_user`           | `bitcoin`            |                                     |
 | `bitcoind_group`          | `bitcoin`            |                                     |
 | `bitcoind_arch`           | _(auto-detected)_    | Override for cross-platform deploys |
+| `bitcoind_install_binary_groups` | `[node, cli]` | `node`, `cli`, `wallet`, `tools`, `gui`, `test` |
+| `bitcoind_install_extra_binaries` | `[]` | Individual binaries alongside the groups |
+| `bitcoind_install_cli_wrapper` | `true`            | Install `bitcoin-cli-<network>`     |
 
 Node configuration:
 

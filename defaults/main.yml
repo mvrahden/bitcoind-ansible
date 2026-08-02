@@ -13,6 +13,41 @@ bitcoind_version: 31.1
 # Override for cross-platform deploys (e.g. "aarch64-linux-gnu").
 bitcoind_arch: ""
 
+# Which of the release's binaries to install, chosen by group. A release tarball
+# carries far more than a headless node runs, and the surplus is most of the
+# download. Anything not selected is not installed, and is removed from
+# /usr/local/bin if an earlier run put it there.
+#
+#   node     bitcoind. The daemon. Required.
+#   cli      bitcoin-cli. The client the health check and the bitcoin-cli
+#            wrapper talk to the node through. Required in practice.
+#   wallet   bitcoin-wallet. An offline tool for creating and repairing wallet
+#            files. A node with the wallet enabled does not need it: wallets are
+#            created and used over RPC.
+#   tools    bitcoin-tx and bitcoin-util for offline transaction and key work,
+#            and the `bitcoin` multiplexer that dispatches to the others.
+#   gui      bitcoin-qt. Cannot run on a headless host; see the README.
+#   test     test_bitcoin and the benchmark runner. Knots still ships these,
+#            Core stopped at 30.x.
+#
+# A group installs whichever of its binaries the chosen release actually ships,
+# so one setting works across Core, Knots and versions, and binaries added by
+# future releases arrive with their group rather than needing a config change.
+bitcoind_install_binary_groups:
+  - node
+  - cli
+
+# Individual binaries to install alongside the groups above, for when a whole
+# group is more than you want. Unlike a group, a name listed here must exist in
+# the chosen release: asking for one it does not ship fails the run.
+bitcoind_install_extra_binaries: []
+
+# Install /usr/local/bin/bitcoin-cli-<network>, which calls bitcoin-cli with
+# this node's data directory and configuration already filled in. Without it
+# every operator command needs both paths spelled out, because bitcoin-cli
+# defaults to ~/.bitcoin/bitcoin.conf and this node uses neither.
+bitcoind_install_cli_wrapper: true
+
 # Serve JSON-RPC
 bitcoind_server: true
 

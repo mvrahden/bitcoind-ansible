@@ -77,6 +77,25 @@
   profile.
 - A weekly workflow that opens an issue when the pinned defaults fall behind
   upstream.
+- `bitcoind_install_cli_wrapper`, installing `/usr/local/bin/bitcoin-cli-<network>`
+  so operator commands need no `-datadir`/`-conf` flags, plus a
+  `<data_dir>/bitcoin.conf` link for tooling that expects the standard filename.
+- `bitcoind_install_binary_groups`, selecting binaries by purpose — `node`,
+  `cli`, `wallet`, `tools`, `gui`, `test` — defaulting to `[node, cli]`. A group
+  installs whichever of its binaries the release ships, so one setting works
+  across Core and Knots, whose binary sets differ, and across versions, and a
+  binary added by a future release arrives with its group rather than needing a
+  config change. `bitcoind_install_extra_binaries` names individual binaries for
+  finer control; unlike a group, those must exist in the release.
+  Roughly 20 MB is installed where the full tarball would be 81 MB for Core 31.1
+  and 107.5 MB for Knots 29.3. Unselected binaries are removed from
+  `/usr/local/bin` on every run, so upgrading from a version of this role that
+  installed everything cleans up rather than leaving the surplus behind. Removal
+  is bounded to the binaries the groups name, so unrelated software in
+  `/usr/local/bin` is never touched. `bitcoin-qt` is not installed by default and
+  could not run on a headless target anyway: on a clean Debian 12 it fails to
+  resolve two libraries for Core and seventeen, including the X11/xcb stack, for
+  Knots.
 - A `LICENSE` file. MIT has been declared in `meta/main.yml` since the project
   began, but the licence text was never committed.
 

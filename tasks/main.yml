@@ -93,6 +93,41 @@
     - ansible_facts.getent_group[bitcoind_tor_control_group] is not defined
       or ansible_facts.getent_group[bitcoind_tor_control_group] is none
 
+- name: Bitcoind | Validate the requested binary groups are known
+  ansible.builtin.fail:
+    msg: >-
+      bitcoind_install_binary_groups contains unknown group(s):
+      {{ bitcoind_install_binary_groups | difference(_bitcoind_binary_groups.keys() | list) | join(', ') }}.
+      Valid groups are: {{ _bitcoind_binary_groups.keys() | sort | join(', ') }}.
+  when: bitcoind_install_binary_groups | difference(_bitcoind_binary_groups.keys() | list) | length > 0
+
+- name: Bitcoind | Resolve the selected groups into a set of binaries
+  ansible.builtin.set_fact:
+    _bitcoind_wanted_binaries: >-
+      {{ (bitcoind_install_binary_groups | map('extract', _bitcoind_binary_groups) | flatten
+          + bitcoind_install_extra_binaries) | unique | sort }}
+
+- name: Bitcoind | Report the binaries that will be installed
+  ansible.builtin.debug:
+    msg: >-
+      Selected groups {{ bitcoind_install_binary_groups | join(', ') }}
+      resolve to: {{ _bitcoind_wanted_binaries | join(', ') }}
+      (whichever of these the release ships).
+
+- name: Bitcoind | Validate the selection covers what the role needs
+  ansible.builtin.fail:
+    msg: >-
+      The selected binaries must include "bitcoind", and must include
+      "bitcoin-cli" while
+      {{ 'bitcoind_health_check' if bitcoind_health_check | bool else 'bitcoind_install_cli_wrapper' }}
+      is enabled, because both talk to the node through it. The "node" and "cli"
+      groups provide them. Currently selected:
+      {{ _bitcoind_wanted_binaries | join(', ') }}.
+  when: >-
+    'bitcoind' not in _bitcoind_wanted_binaries
+    or ('bitcoin-cli' not in _bitcoind_wanted_binaries
+        and (bitcoind_health_check | bool or bitcoind_install_cli_wrapper | bool))
+
 - name: Bitcoind | Validate RPC auth is configured
   ansible.builtin.fail:
     msg: >-
@@ -260,14 +295,39 @@
         - _bitcoind_systemd_stop.failed
         - "'Could not find the requested service' not in _bitcoind_systemd_stop.msg"
 
+    - name: "Bitcoind | List the binaries this release ships"
+      ansible.builtin.find:
+        paths: "{{ _bitcoind_staging.path }}/bitcoin-{{ bitcoind_version }}/bin"
+        file_type: file
+      register: _bitcoind_release_binaries
+
+    # A group is a best-effort selection, so a member the release does not ship
+    # is simply skipped. A binary named individually is a specific request, so a
+    # missing one is an error rather than a silent omission.
+    - name: "Bitcoind | Validate individually named binaries exist in this release"
+      ansible.builtin.fail:
+        msg: >-
+          bitcoind_install_extra_binaries requests
+          {{ bitcoind_install_extra_binaries | difference(_bitcoind_available) | join(', ') }},
+          which Bitcoin {{ bitcoind_implementation }} v{{ bitcoind_version }} does
+          not ship. It ships: {{ _bitcoind_available | sort | join(', ') }}.
+      vars:
+        _bitcoind_available: "{{ _bitcoind_release_binaries.files | map(attribute='path') | map('basename') | list }}"
+      when: bitcoind_install_extra_binaries | difference(_bitcoind_available) | length > 0
+
+    # Copied individually rather than copying the directory and pruning after,
+    # so nothing unselected is ever written to the target.
     - name: "Bitcoind | Install binaries into '/usr/local/bin/*'"
       ansible.builtin.copy:
-        src: "{{ _bitcoind_staging.path }}/bitcoin-{{ bitcoind_version }}/bin/"
-        dest: /usr/local/bin/
+        src: "{{ _bitcoind_staging.path }}/bitcoin-{{ bitcoind_version }}/bin/{{ item }}"
+        dest: "/usr/local/bin/{{ item }}"
         remote_src: true
         owner: root
         group: root
         mode: "0755"
+      loop: >-
+        {{ _bitcoind_wanted_binaries
+           | intersect(_bitcoind_release_binaries.files | map(attribute='path') | map('basename') | list) }}
 
   always:
     # gpg-agent creates socket files (S.gpg-agent*) that vanish asynchronously
@@ -285,6 +345,20 @@
         path: "{{ _bitcoind_staging.path }}"
         state: absent
       when: _bitcoind_staging.path is defined
+
+# Runs on every play, not only when the version changes, so that a node
+# installed by an earlier version of this role, or one whose selection has since
+# been narrowed, has the surplus taken away rather than left behind to rot.
+#
+# Bounded to the binaries the groups know about: /usr/local/bin belongs to the
+# operator, and removing everything unselected would delete unrelated software.
+- name: "Bitcoind | Remove Bitcoin binaries that are not selected"
+  ansible.builtin.file:
+    path: "/usr/local/bin/{{ item }}"
+    state: absent
+  loop: >-
+    {{ _bitcoind_binary_groups.values() | flatten | unique
+       | difference(_bitcoind_wanted_binaries) | sort }}
 
 # /lib/systemd/system belongs to distribution packages. Units generated by an
 # administrator belong in /etc/systemd/system, which also takes precedence, so
@@ -327,6 +401,47 @@
   no_log: "{{ bitcoind_no_log | bool }}"
   notify:
     - Bitcoind | Ensure bitcoind systemd unit is restarted
+
+# Third-party tooling and bitcoin-cli itself expect <datadir>/bitcoin.conf.
+# Linking it to the managed file means `bitcoin-cli -datadir=<dir>` works
+# without also naming the config.
+- name: "Bitcoind | Check what occupies '{{ bitcoind_data_dir }}/bitcoin.conf'"
+  ansible.builtin.stat:
+    path: "{{ bitcoind_data_dir }}/bitcoin.conf"
+    follow: false
+  register: _bitcoind_std_conf
+
+# Skipped rather than forced when a real file is already there: on a node
+# adopted from a hand-rolled setup that file is the operator's, and replacing
+# it with a link would discard it.
+- name: "Bitcoind | Link '{{ bitcoind_data_dir }}/bitcoin.conf' to the managed config"
+  ansible.builtin.file:
+    src: "{{ bitcoind_data_dir }}/bitcoind.conf"
+    dest: "{{ bitcoind_data_dir }}/bitcoin.conf"
+    state: link
+    owner: "{{ bitcoind_user }}"
+    group: "{{ bitcoind_group }}"
+  when: not _bitcoind_std_conf.stat.exists or _bitcoind_std_conf.stat.islnk
+
+- name: "Bitcoind | Warn that '{{ bitcoind_data_dir }}/bitcoin.conf' is not managed"
+  ansible.builtin.debug:
+    msg: >-
+      {{ bitcoind_data_dir }}/bitcoin.conf already exists as a regular file and
+      has been left alone. Remove it if you want the role to link it to the
+      managed configuration; until then bitcoin-cli will read that file rather
+      than {{ bitcoind_data_dir }}/bitcoind.conf.
+  when:
+    - _bitcoind_std_conf.stat.exists
+    - not _bitcoind_std_conf.stat.islnk
+
+- name: "Bitcoind | Install the bitcoin-cli wrapper for this network"
+  ansible.builtin.template:
+    src: bitcoin-cli-wrapper.j2
+    dest: "/usr/local/bin/bitcoin-cli-{{ bitcoind_network }}"
+    owner: root
+    group: root
+    mode: "0755"
+  when: bitcoind_install_cli_wrapper | bool
 
 # Handlers otherwise run at the end of the play, which would put the restart
 # after the health check and after the version cookie is written. A broken

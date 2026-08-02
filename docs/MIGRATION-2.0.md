@@ -119,6 +119,72 @@ disabled, so it will not fail your run.
 
 Every other variable combination produces an identical effective configuration.
 
+### Only the binaries a node needs are installed
+
+1.x copied every binary in the release tarball into `/usr/local/bin`. 2.0 selects
+by group through `bitcoind_install_binary_groups`, defaulting to `[node, cli]`:
+`bitcoind` and `bitcoin-cli`, roughly 20 MB against 81 MB for Core 31.1 and
+107.5 MB for Knots 29.3.
+
+**On the first 2.0 run, the surplus is deleted from `/usr/local/bin`.** That is
+the point — otherwise upgrading would leave dead weight behind forever — but it
+means `bitcoin-tx`, `bitcoin-util`, `bitcoin`, `bitcoin-wallet`, `bitcoin-qt` and
+`test_bitcoin` disappear unless you ask for them:
+
+```yaml
+bitcoind_install_binary_groups:
+  - node
+  - cli
+  - tools     # bitcoin, bitcoin-tx, bitcoin-util
+  - wallet    # bitcoin-wallet
+```
+
+Groups are `node`, `cli`, `wallet`, `tools`, `gui` and `test`. A group installs
+whichever of its binaries the release actually ships, so the same setting works
+for Core and Knots despite their differing binary sets. To pick individual
+binaries instead, use `bitcoind_install_extra_binaries`; those must exist in the
+release, and asking for one that does not fails the run with a list of what does.
+
+Note that `wallet` is not implied by setting `bitcoind_disablewallet: false`.
+`bitcoin-wallet` is an *offline* tool for creating and repairing wallet files; a
+node with the wallet enabled manages wallets over RPC and does not need it. Add
+the group if you want the tool.
+
+Removal is bounded to the binaries these groups name. Anything else you keep in
+`/usr/local/bin` is left alone.
+
+**`bitcoin-qt` could not run on a headless target anyway.** On a clean Debian 12
+it fails to resolve `libfontconfig.so.1` and `libfreetype.so.6` for Core, and
+seventeen libraries including the whole X11/xcb stack for Knots, while `bitcoind`
+resolves everything it needs. What 1.x installed was a binary that would not
+start. If you want it, add the `gui` group and install its libraries yourself —
+the role will not:
+
+```bash
+# Core
+apt install libfontconfig1 libfreetype6
+# Knots additionally needs an X11/xcb stack
+```
+
+If you drop the `tools` group you also lose the `bitcoin` multiplexer, and with
+it `bitcoin rpc`, `bitcoin node` and friends. Note that `bitcoin bench`,
+`bitcoin chainstate`, `bitcoin test` and `bitcoin test-gui` already fail on an
+unmodified official install, because those binaries are not in the tarball
+either.
+
+### An operator wrapper is installed
+
+`/usr/local/bin/bitcoin-cli-<network>` is added, calling `bitcoin-cli` with this
+node's data directory and configuration already supplied, so
+`sudo bitcoin-cli-main getblockchaininfo` works with no flags. Set
+`bitcoind_install_cli_wrapper: false` to skip it.
+
+The role also links `<data_dir>/bitcoin.conf` to the managed `bitcoind.conf`. If
+a regular file already exists at that path — likely if you adopted a
+hand-configured node into this role — it is left alone and the run prints a
+notice. Be aware that `bitcoin-cli` will then read your file rather than the
+managed one.
+
 ### Stricter preflight validation
 
 Playbooks that were quietly wrong now fail fast, before anything is installed:
@@ -177,6 +243,8 @@ role does not install or configure Tor.
 | `bitcoind_gpg_trusted_fingerprints` | `[]` | Narrow trust to specific builders |
 | `bitcoind_gpg_allow_expired_keys` | `false` | Count signatures from expired keys |
 | `bitcoind_no_log` | `true` | Set `false` to preview config changes with `--check --diff` |
+| `bitcoind_install_binary_groups` | `[node, cli]` | Which binaries to install, by purpose |
+| `bitcoind_install_cli_wrapper` | `true` | `bitcoin-cli-<network>` needing no flags |
 
 ## Verifying the upgrade
 
@@ -200,7 +268,7 @@ Afterwards, confirm the version and that the node is healthy:
 
 ```bash
 bitcoind -version
-sudo bitcoin-cli -datadir=/data/bitcoin -conf=/data/bitcoin/bitcoind.conf -getinfo
+sudo bitcoin-cli-main -getinfo   # or your network's name
 ```
 
 ## Rolling back

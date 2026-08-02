@@ -10,23 +10,18 @@
     bitcoind_user: bitcoin
     bitcoind_group: bitcoin
     bitcoind_network: regtest
-    # Core 30.x+: bitcoin wrapper replaces test_bitcoin
-    # Knots 29.x: still has test_bitcoin, no bitcoin wrapper (confirmed for 29.3)
-    _core_binaries:
+    # The whitelist default, with the wallet disabled as it is by default.
+    _expected_binaries:
+      - bitcoind
+      - bitcoin-cli
+    # Everything else either implementation ships. None of it should be present,
+    # whether because it was never installed or because cleanup removed it.
+    _unexpected_binaries:
       - bitcoin
-      - bitcoin-cli
       - bitcoin-qt
       - bitcoin-tx
       - bitcoin-util
       - bitcoin-wallet
-      - bitcoind
-    _knots_binaries:
-      - bitcoin-cli
-      - bitcoin-qt
-      - bitcoin-tx
-      - bitcoin-util
-      - bitcoin-wallet
-      - bitcoind
       - test_bitcoin
 
   tasks:
@@ -34,7 +29,7 @@
       ansible.builtin.stat:
         path: "/usr/local/bin/{{ item }}"
       register: bitcoind_bins
-      with_items: "{{ _core_binaries if bitcoind_implementation == 'core' else _knots_binaries }}"
+      with_items: "{{ _expected_binaries }}"
 
     - name: "Test that binaries were copied correctly for Bitcoin v{{ bitcoind_version }}"
       ansible.builtin.assert:
@@ -45,6 +40,33 @@
           - item.stat.gr_name == 'root'
           - item.stat.mode == '0755'
       with_items: "{{ bitcoind_bins.results }}"
+
+    - name: "Retrieve information about binaries outside the whitelist"
+      ansible.builtin.stat:
+        path: "/usr/local/bin/{{ item }}"
+      register: _unexpected_stat
+      with_items: "{{ _unexpected_binaries }}"
+
+    - name: "Test that binaries outside the whitelist are absent"
+      ansible.builtin.assert:
+        that:
+          - not item.stat.exists
+        fail_msg: >-
+          {{ item.item }} is present in /usr/local/bin but is not in
+          bitcoind_install_binaries.
+      with_items: "{{ _unexpected_stat.results }}"
+
+    # The point of the wrapper is that an operator needs no flags at all.
+    - name: "Test the bitcoin-cli wrapper works with no arguments"
+      ansible.builtin.command:
+        cmd: "/usr/local/bin/bitcoin-cli-{{ bitcoind_network }} -rpcwait -rpcwaittimeout=120 getblockchaininfo"
+      register: _wrapper_out
+      changed_when: false
+
+    - name: "Test the wrapper reached the right chain"
+      ansible.builtin.assert:
+        that:
+          - (_wrapper_out.stdout | from_json).chain == bitcoind_network
 
     - name: "Check systemd service is running"
       ansible.builtin.systemd:
