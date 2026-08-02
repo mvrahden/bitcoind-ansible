@@ -101,11 +101,16 @@
   when: bitcoind_rpc_auth | default('') | length == 0
 
 # dirmngr is no longer needed: builder keys ship with the role rather than
-# being fetched from a keyserver at install time.
+# being fetched from a keyserver at install time. gpg-agent still is, because
+# gpg 2.x delegates keyring writes to it during --import. Debian's images happen
+# to ship it already; Ubuntu's do not, and the `gpg` package alone does not pull
+# it in.
 - name: Bitcoind | Ensure dependencies are installed
   ansible.builtin.apt:
     update_cache: true
-    name: gpg
+    name:
+      - gpg
+      - gpg-agent
     state: present
   when: not (bitcoind_skip_gpg_verification | bool)
 
@@ -144,18 +149,26 @@
     group: "{{ bitcoind_group }}"
     mode: "0750"
 
-- name: "Bitcoind | Load version cookie file"
+# Absent on a first install, which is not an error. Checked with stat rather
+# than a slurp with ignore_errors, so a normal first run does not print a red
+# failure that looks like something went wrong.
+- name: "Bitcoind | Check for the version cookie file"
+  ansible.builtin.stat:
+    path: "{{ bitcoind_data_dir }}/.bitcoind.version"
+  register: _bitcoind_version_cookie_stat
+
+- name: "Bitcoind | Read version cookie file"
   ansible.builtin.slurp:
     src: "{{ bitcoind_data_dir }}/.bitcoind.version"
   register: _bitcoind_version_cookie_file
-  ignore_errors: true
+  when: _bitcoind_version_cookie_stat.stat.exists
 
 - name: "Bitcoind | Determine version change from version cookie vs. configured version"
   ansible.builtin.set_fact:
     _bitcoind_change_version: >-
       {{ (_bitcoind_version_cookie_file['content'] | b64decode | trim).splitlines() | last
          != (bitcoind_version | string) }}
-  when: "not _bitcoind_version_cookie_file.failed"
+  when: _bitcoind_version_cookie_stat.stat.exists
 
 - name: "Bitcoind | Debug detected version change from cookie"
   ansible.builtin.debug:
@@ -163,7 +176,7 @@
 
 # ── Download, verify, and install Bitcoin (only on first install or version change) ──
 - name: Bitcoind | Download, verify, and install Bitcoin
-  when: _bitcoind_version_cookie_file.failed or _bitcoind_change_version | bool
+  when: not _bitcoind_version_cookie_stat.stat.exists or _bitcoind_change_version | bool
   block:
     # Fix #5: Secure staging directory (unpredictable path, 0700, root-owned)
     - name: Bitcoind | Create secure staging directory
